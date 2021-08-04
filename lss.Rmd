@@ -1,0 +1,881 @@
+---
+title: "Latent Semantic Scaling"
+author: "Candidate 13343"
+date: "6/23/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+suppressMessages(library(httr))
+suppressMessages(library(jsonlite))
+suppressMessages(library(devtools))
+suppressMessages(library(academictwitteR))
+suppressMessages(library(dplyr))
+suppressMessages(library(tidyr))
+suppressMessages(library(quanteda))
+suppressMessages(library(stringr))
+suppressMessages(library(topicmodels))
+suppressMessages(library(topicdoc))
+suppressMessages(library(ldatuning))
+suppressMessages(library(LSX))
+suppressMessages(library(quanteda.sentiment))
+suppressMessages(library(zoo))
+suppressMessages(library(cvTools))
+suppressMessages(library(reshape))
+suppressMessages(library(ggplot2))
+suppressMessages(library(grid))
+suppressMessages(library(lubridate))
+suppressMessages(library(cvTools))
+suppressMessages(library(scales))
+suppressMessages(library(gridExtra))
+suppressMessages(library(igraph))
+suppressMessages(library(stringr))
+suppressMessages(library(topicmodels))
+suppressMessages(library(topicdoc))
+suppressMessages(library(ldatuning))
+suppressMessages(library(LSX))
+suppressMessages(library(stats))
+suppressMessages(library(gtable))
+suppressMessages(library(cowplot))
+```
+
+************************************************************************************************************
+
+Read in final data for the analysis - 3 hours before and 45 hours after attack
+
+Timeframe of attack data:
+- 2017-03-22 14:40 + 48 hours
+- 2017-05-22 21:30 + 48 hours
+- 2017-06-03 21:06 + 48 hours
+- 2017-06-18 23:05 + 48 hours
+- 2017-09-15 07:20 + 48 hours
+
+```{r cache=TRUE}
+attack_tweets_west_final <- readRDS("attack_tweets_west_final2.RDS")
+attack_tweets_manc_final <- readRDS("attack_tweets_manc_final2.RDS")
+attack_tweets_lond_final <- readRDS("attack_tweets_lond_final2.RDS")
+attack_tweets_fins_final <- readRDS("attack_tweets_fins_final2.RDS")
+attack_tweets_pars_final <- readRDS("attack_tweets_pars_final2.RDS")
+```
+
+Combine all attacks for analysis 
+
+```{r cache=TRUE, eval=FALSE}
+attack_tweets_west_final$attack <- "Westminster"
+attack_tweets_manc_final$attack <- "Manchester Arena"
+attack_tweets_lond_final$attack <- "London Bridge"
+attack_tweets_fins_final$attack <- "Finsbury Park"
+attack_tweets_pars_final$attack <- "Parsons Green"
+
+attack_tweets_alll_final <- rbind(attack_tweets_west_final,
+                                  attack_tweets_manc_final,
+                                  attack_tweets_lond_final,
+                                  attack_tweets_fins_final,
+                                  attack_tweets_pars_final)
+
+# saveRDS(attack_tweets_alll_final, "attack_tweets_alll_final.RDS")
+```
+
+```{r cache=TRUE}
+attack_tweets_alll_final <- readRDS("attack_tweets_alll_final.RDS")
+```
+
+Topic modelling for exploration
+
+```{r cache=TRUE}
+make_dfm <- function(corpus, stem, verbose = FALSE) {
+  
+  dfm <- corpus %>%
+    tokens(
+      remove_punct = TRUE,
+      remove_url = TRUE,
+      remove_symbols = TRUE,
+      remove_numbers = TRUE
+      ) %>% 
+  tokens_remove(
+    c(stopwords("en"),
+      # Remove common Twitter abbreviations
+      "t.co", "rt", "amp", "#rt",
+      "&amp", "http", "https")
+    ) %>% 
+  tokens_select(
+    min_nchar = 2L
+    ) %>% 
+  dfm(
+    stem = stem,
+    verbose = verbose
+    )
+  
+  return(dfm)
+}
+```
+
+```{r cache=TRUE}
+# corpus_west <- corpus(attack_tweets_west_final, text = "text")
+# corpus_manc <- corpus(attack_tweets_manc_final, text = "text")
+# corpus_lond <- corpus(attack_tweets_lond_final, text = "text")
+# corpus_fins <- corpus(attack_tweets_fins_final, text = "text")
+# corpus_pars <- corpus(attack_tweets_pars_final, text = "text")
+corpus_alll <- corpus(attack_tweets_alll_final, text = "text")
+
+# dfm_west <- make_dfm(corpus_west, verbose = TRUE, stem = FALSE)
+# dfm_manc <- make_dfm(corpus_manc, verbose = TRUE, stem = FALSE)
+# dfm_lond <- make_dfm(corpus_lond, verbose = TRUE, stem = FALSE)
+# dfm_fins <- make_dfm(corpus_fins, verbose = TRUE, stem = FALSE)
+# dfm_pars <- make_dfm(corpus_pars, verbose = TRUE, stem = FALSE)
+dfm_alll <- make_dfm(corpus_alll, verbose = TRUE, stem = FALSE)
+```
+
+```{r cache=TRUE}
+set.seed(123)
+
+lda_west <- LDA(dfm_fin_west, k = 5, method = "Gibbs", control = list(seed = 1))
+lda_manc <- LDA(dfm_fin_manc, k = 5, method = "Gibbs", control = list(seed = 1))
+lda_lond <- LDA(dfm_fin_lond, k = 5, method = "Gibbs", control = list(seed = 1))
+lda_fins <- LDA(dfm_fin_fins, k = 5, method = "Gibbs", control = list(seed = 1))
+lda_pars <- LDA(dfm_fin_pars, k = 5, method = "Gibbs", control = list(seed = 1))
+lda_alll <- LDA(dfm_fin_alll, k = 5, method = "Gibbs", control = list(seed = 1))
+
+get_terms(lda_west, 20)
+get_terms(lda_manc, 20)
+get_terms(lda_lond, 20)
+get_terms(lda_fins, 20)
+get_terms(lda_pars, 20)
+get_terms(lda_alll, 20)
+```
+
+From topic models: 
+Westminster - "uk-born", "racists", "racist", "vet", "mass", "blood", "disgraceful", "murders"
+Manchester - "#buildthewall", "terrorists", "illegal", "stop", "coming"
+London - multiculturalism (but used by ann coulder), dumped, borders, control, #travelban
+Parsons - deport
+
+************************************************************************************************************************
+### Question 1: Latent semantic scaling
+
+```{r cache=TRUE}
+# Create seedword dictionary for scaling 
+# 1a: all words from  qulitative undestanding 
+seedword_dict_1a <- dictionary(list(
+  positive = c("islamaphobia", "love", "together", "racist", "#refugeeswelcome", "tories", "welcome", "racists",
+               "empathy", "positive", "benefit", "amazing", "rise", "vulnerable", "wages"),
+  negative = c("disgraceful", "murders", "ban", "#buildthewall","deport", "control", "#travelban", "blood", "thug", 
+               "bad", "nasty", "wrong", "illegals", "illegal", "horrible", "evil", "problem", "mass", "dumped", "destroyed",
+               "close", "extremist", "brexit", "control", "coming", "vet", "#closetheborders", "stop")
+  ))
+
+seedword_dict_1b <- dictionary(list(
+  positive = c("islamaphobia", "love", "together", "racist", "#refugeeswelcome", "tories", "welcome",
+               "empathy", "positive", "benefit", "amazing", "vulnerable"),
+  negative = c("disgraceful", "murderers", "ban", "#buildthewall","deport", "control", "#travelban", "blood", "thug", 
+               "bad", "nasty", "wrong", "illegals", "illegal", "horrible", "evil", "problem", "mass", "dumped", "destroyed",
+               "extremist", "control", "vet", "#closetheborders", "killers")
+  ))
+
+seedword_dict_1c <- dictionary(list(
+  positive = c("islamaphobia", "love", "together", "racist", "#refugeeswelcome", "tories", "welcome",
+               "empathy", "positive", "benefit", "amazing", "vulnerable"),
+  negative = c("disgraceful", "#buildthewall","deport", "control", "#travelban", "blood", "thug", "disgusting",
+               "illegals", "evil", "problem", "mass", "dumped", "destroyed", "vet", "#closetheborders")
+  ))
+```
+
+```{r}
+lss_function <- function(corpus, seedword_dict, k_val = 300) {
+  
+  # segment corpus into sentences to determine semantic proximity 
+  corpus_sentences <- corpus_reshape(corpus, to =  "sentences")
+  
+  # make tokens object
+  lss_tokens <- corpus_sentences %>%
+  tokens(
+    remove_punct = TRUE,
+    remove_symbols = TRUE,
+    remove_numbers = TRUE,
+    remove_url = TRUE
+    ) %>% 
+  tokens_remove(
+    c(stopwords("en"), 
+      "t.co", "rt", "amp", "&amp", "http", "https",
+      "#rt")
+    # remove common words?
+    # padding = TRUE
+    ) %>% 
+  tokens_select(min_nchar = 2L
+                )
+  # tokens_ngrams(n = 1:2)
+  
+  lss_dfm <- lss_tokens %>% 
+    dfm(stem = FALSE) %>% 
+    dfm_remove(pattern = "") %>% 
+    # remove usernames 
+    dfm_remove(pattern = "@*") %>%
+    dfm_trim(
+      min_docfreq = 10
+      # min_termfreq = 5
+      )
+
+  seeds <- as.seedwords(seedword_dict)
+  
+  # get context around words relating to immigrants
+  # "With the seed words, LSS computes polarity of words frequent in the 
+  # context of [immigration]."
+  # context_terms <- char_context(lss_tokens, pattern = "*migra*", p = 0.05)
+  
+  # Train LSS model to assign document scores
+  lss_model <- textmodel_lss(lss_dfm, 
+                             seeds = seeds,
+                             # terms = context_terms,
+                             k = k_val,
+                             cache = TRUE)
+  
+  return(list(lss_model, lss_dfm))
+}
+```
+
+
+```{r cache=TRUE}
+lss_alll_output <- lss_function(corpus_alll, seedword_dict_1c, k_val = 300)
+lss_mod_alll <- lss_alll_output[[1]]
+lss_dfm_alll <- lss_alll_output[[2]]
+```
+
+```{r}
+# look at polarity of individual words against negative and positive terms
+# in existing sentiment dictionary 
+print(textplot_terms(lss_mod_alll, data_dictionary_LSD2015["negative"]))
+print(textplot_terms(lss_mod_alll, data_dictionary_LSD2015["positive"]))
+
+print(textplot_terms(lss_mod_alll, data_dictionary_NRC["negative"]))
+print(textplot_terms(lss_mod_alll, data_dictionary_NRC["positive"]))
+
+print(textplot_terms(lss_mod_alll, seedword_dict_1c))
+
+# other visualisations
+# textplot_simil(lss_west, group = FALSE)
+# textstat_context(tokens_west, pattern = "immigr*", valuetype = "glob") %>% head()
+# char_context(tokens_west, pattern = "immigr*", valuetype = "glob") %>% head()
+
+lss_polarity_neg <- textplot_terms(lss_mod_alll, data_dictionary_LSD2015["negative"])
+lss_polarity_pos <- textplot_terms(lss_mod_alll, data_dictionary_LSD2015["positive"])
+
+ggsave(lss_polarity_neg, file = "lss_polarity_neg.png", height = 8, width = 10)
+ggsave(lss_polarity_pos, file = "lss_polarity_pos.png", height = 8, width = 10)
+```
+
+```{r cache=TRUE}
+coefs_alll <- data.frame(frequency = lss_mod_alll$frequency,
+                               word = names(lss_mod_alll$frequency),
+                               polarity = coef(lss_mod_alll))
+
+coefs_alll %>% 
+  filter(word %in% seedword_dict_1c[["positive"]] 
+         | word %in% seedword_dict_1c[["negative"]])
+
+coefs_alll %>%
+  arrange(desc(frequency))
+
+coefs_alll %>%
+  arrange(polarity)
+
+print(head(coef(lss_mod_alll), 20)) # most positive words
+print(tail(coef(lss_mod_alll), 20)) # most negative words
+```
+
+****************************************************************************************************************
+
+#### Visualise change in opinion over time
+
+### Function to estimate LSS fit 
+
+```{r}
+get_lss_est <- function(lss_mod_all, lss_dfm_ind, time_pd = "hourly") {
+  
+  # reconstruct original articles from their sentences
+  dfm_doc <- dfm_group(lss_dfm_ind)
+  
+  # Contstruct df for plotting
+  dat_df <- docvars(dfm_doc)
+  
+  # Add in timestemps
+  if (time_pd == "hourly") {
+    dat_df$date_raw <- docvars(dfm_doc, "created_ymdhourly")
+    smooth_units <- "hours"
+    smooth_per <- "1 hour"
+  }
+  
+  if (time_pd == "minutes") {
+    dat_df$date_raw <- docvars(dfm_doc, "created_ymdhmin")
+    smooth_units = "mins"
+    smooth_per <- "1 min"
+  }
+  
+  # Predict scores for each document using LSS model
+  dat_df$fit_raw <- predict(lss_mod_all, newdata = dfm_doc)
+  
+  # rescale so fit is between -1 and 1
+  dat_df$fit_scaled <- rescale(dat_df$fit_raw, to = c(-1, 1))
+  
+  if (nrow(dat_df) <= 10000) {
+    engine <- "loess"
+  } else {
+    engine <- "loess"
+    # engine depracated
+    # engine <- "locfit"
+  }
+  
+  ## Code from lss_smooth function() in the LSX package
+  # with minor editing
+  {
+    x <- dat_df
+    lss_var <- "fit_raw"
+    date_var <- "date_raw"
+    span <- 0.5
+  
+    x$lss <- x[[lss_var]]
+    x$date <- x[[date_var]]
+    from <- min(x$date)
+    to <- max(x$date)
+    x$time <- as.numeric(difftime(x$date, from, units = smooth_units))
+    dummy <- data.frame(date = seq(from, to, smooth_per))
+    dummy$time <- as.numeric(difftime(dummy$date, from, units = smooth_units))
+    dummy$fit <- NA
+    
+    if (engine == "loess") {
+      suppressWarnings(temp <- predict(loess(lss ~ time, 
+                                             data = x,
+                                             span = span),
+                                       newdata = dummy,
+                                       se = TRUE))
+      } else {
+        suppressWarnings(temp <- predict(locfit(lss ~ lp(time, nn = span), 
+                                                data = x),
+                                         newdata = dummy, 
+                                         se = TRUE))
+      }
+    result <- cbind(dummy[c("date", "time")], temp[c("fit", "se.fit")])
+  }
+  
+  dat_smoothed <- result
+  
+  all_dates <- data_frame(date = unique(dat_df$date_raw))
+  
+  dat_smoothed <- dat_smoothed %>% 
+    right_join(all_dates, by = "date")
+ 
+  return(list(dat_smoothed, dat_df))
+}
+```
+
+```{r cache=TRUE}
+# Split the dfm into their respective attacks 
+lss_all_dfm_west <- dfm_subset(lss_dfm_alll, attack == "Westminster")
+lss_all_dfm_manc <- dfm_subset(lss_dfm_alll, attack == "Manchester Arena")
+lss_all_dfm_lond <- dfm_subset(lss_dfm_alll, attack == "London Bridge")
+lss_all_dfm_fins <- dfm_subset(lss_dfm_alll, attack == "Finsbury Park")
+lss_all_dfm_pars <- dfm_subset(lss_dfm_alll, attack == "Parsons Green")
+
+# estimate and smooth the LSS fit scores for each attack
+lss_est_output_west <- get_lss_est(lss_mod_all = lss_mod_alll, lss_dfm_ind = lss_all_dfm_west)
+lss_est_output_manc <- get_lss_est(lss_mod_all = lss_mod_alll, lss_dfm_ind = lss_all_dfm_manc)
+lss_est_output_lond <- get_lss_est(lss_mod_all = lss_mod_alll, lss_dfm_ind = lss_all_dfm_lond)
+lss_est_output_fins <- get_lss_est(lss_mod_all = lss_mod_alll, lss_dfm_ind = lss_all_dfm_fins)
+lss_est_output_pars <- get_lss_est(lss_mod_all = lss_mod_alll, lss_dfm_ind = lss_all_dfm_pars)
+
+# output for line plot
+dat_smoothed_west <- lss_est_output_west[[1]]
+dat_smoothed_manc <- lss_est_output_manc[[1]]
+dat_smoothed_lond <- lss_est_output_lond[[1]]
+dat_smoothed_fins <- lss_est_output_fins[[1]]
+dat_smoothed_pars <- lss_est_output_pars[[1]]
+
+# output for scatterplot
+dat_df_west <- lss_est_output_west[[2]]
+dat_df_manc <- lss_est_output_manc[[2]]
+dat_df_lond <- lss_est_output_lond[[2]]
+dat_df_fins <- lss_est_output_fins[[2]]
+dat_df_pars <- lss_est_output_pars[[2]]
+```
+
+```{r}
+# Make attack time data frame for plotting
+attack_time_df <- data.frame(attack = c("Westminster", "Manchester Arena","London Bridge", 
+                                        "Finsbury Park","Parsons Green"),
+                             attack_time = c("2017-03-22 14:40", "2017-05-22 21:30", "2017-06-03 21:06",
+                                             "2017-06-18 23:05", "2017-09-15 07:20"))
+
+# Add attack back into each data frame
+dat_smoothed_west$attack <- "Westminster"
+dat_smoothed_manc$attack <- "Manchester Arena"
+dat_smoothed_lond$attack <- "London Bridge"
+dat_smoothed_fins$attack <- "Finsbury Park"
+dat_smoothed_pars$attack <- "Parsons Green"
+
+dat_df_west$attack <- "Westminster"
+dat_df_manc$attack <- "Manchester Arena"
+dat_df_lond$attack <- "London Bridge"
+dat_df_fins$attack <- "Finsbury Park"
+dat_df_pars$attack <- "Parsons Green"
+
+# combine into one data frame for both results
+dat_smoothed_plot <- rbind(dat_smoothed_west, dat_smoothed_manc, dat_smoothed_lond,
+                           dat_smoothed_fins, dat_smoothed_pars)
+
+dat_df_plot <- rbind(dat_df_west, dat_df_manc, dat_df_lond,
+                     dat_df_fins, dat_df_pars)
+
+# Get final bits for thel line plot
+dat_df_plot_fin <- dat_df_plot %>% 
+  select(fit_scaled, date_raw, attack)
+
+# order attacks for plotting
+dat_smoothed_plot <- transform(dat_smoothed_plot, 
+                               attack = factor(attack, 
+                                               levels = c("Westminster", "Manchester Arena", "London Bridge",
+                                                          "Finsbury Park", "Parsons Green")))
+dat_df_plot_fin <- transform(dat_df_plot_fin, 
+                             attack = factor(attack, 
+                                             levels = c("Westminster", "Manchester Arena", "London Bridge",
+                                                        "Finsbury Park", "Parsons Green")))
+
+colnames(dat_df_plot_fin)[2] <- "date" 
+
+attack_time_df <- transform(attack_time_df,
+                            attack = factor(attack, 
+                                            levels = c("Westminster", "Manchester Arena", "London Bridge",
+                                                       "Finsbury Park", "Parsons Green")))
+```
+
+```{r}
+# plot all attacks together using facet wrap and the three data frame
+# order in order of attacks
+lss_plot_all <- dat_smoothed_plot %>% 
+  # plot smoothed fit with line
+  ggplot(aes(x = date, 
+             y = fit)) + 
+  geom_line() +
+  # plot 95% confidence intervals of estimate
+  geom_line(aes(x = date,
+                y = fit + (se.fit * 1.96)),
+            colour = "blue",
+            linetype = "dashed") +
+  geom_line(aes(x = date,
+                y = fit - (se.fit * 1.96)),
+            colour = "blue",
+            linetype = "dashed") +
+  # draw y intercept 
+  geom_hline(yintercept = 0,
+             alpha = 0.1) +
+  # adjust scales
+  scale_x_datetime(date_breaks = "1 day",
+                   date_minor_breaks = "6 hours",
+                   labels = date_format("%b %d")) +
+  # add scatterplot of each document score
+  geom_point(data = dat_df_plot_fin,
+             aes(x = date,
+                 y = fit_scaled),
+             colour = "grey",
+             size = 0.5,
+             alpha = 0.2) +
+  # Add vertical line at time of attack
+  geom_vline(data = attack_time_df,
+             aes(xintercept = as.numeric(ymd_hm(attack_time))),
+             linetype = 4, colour = "red") +
+  # label the attack time 
+  geom_text(aes(x = ymd_hm(attack_time), 
+                y = -0.9,
+                label = "Time of attack"), 
+            data = attack_time_df, 
+            colour = "red",
+            size = 2, angle = 90,
+            vjust = -0.35, hjust = 0) +
+  # adjust plot
+  labs(title = "LSS model estimated document scores",
+       x = "Date",
+       y = "LSS score - immigration sentiment") +
+  ylim(-1, 1) +
+  # adjust theme elements
+  theme_bw() +
+  theme(axis.title.x = element_text(margin = margin(10, 0, 0, 0)),
+        axis.title.y = element_text(margin = margin(0, 10, 0, 0)),
+        plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
+        plot.margin = unit(c(0.25, 0.5, 0.25, 0.5), "cm")) +
+  facet_wrap(~ attack, scales = "free_x", nrow = 2, ncol = 3)
+```
+
+```{r}
+ggsave(lss_plot_all, file = "lss_plots_all_1c.png", height = 7, width = 10)
+```
+
+***********************************************************************************************************************
+
+Functions to shift legend into empty facet 
+
+```{r}
+# code from https://stackoverflow.com/questions/54438495/shift-legend-into-empty-facets-of-a-faceted-plot-in-ggplot2
+shift_legend <- function(p){
+
+  # check if p is a valid object
+  if(!"gtable" %in% class(p)){
+    if("ggplot" %in% class(p)){
+      gp <- ggplotGrob(p) # convert to grob
+    } else {
+      message("This is neither a ggplot object nor a grob generated from ggplotGrob. Returning original plot.")
+      return(p)
+    }
+  } else {
+    gp <- p
+  }
+
+  # check for unfilled facet panels
+  facet.panels <- grep("^panel", gp[["layout"]][["name"]])
+  empty.facet.panels <- sapply(facet.panels, function(i) "zeroGrob" %in% class(gp[["grobs"]][[i]]))
+  empty.facet.panels <- facet.panels[empty.facet.panels]
+  if(length(empty.facet.panels) == 0){
+    message("There are no unfilled facet panels to shift legend into. Returning original plot.")
+    return(p)
+  }
+
+  # establish extent of unfilled facet panels (including any axis cells in between)
+  empty.facet.panels <- gp[["layout"]][empty.facet.panels, ]
+  empty.facet.panels <- list(min(empty.facet.panels[["t"]]), min(empty.facet.panels[["l"]]),
+                             max(empty.facet.panels[["b"]]), max(empty.facet.panels[["r"]]))
+  names(empty.facet.panels) <- c("t", "l", "b", "r")
+
+  # extract legend & copy over to location of unfilled facet panels
+  guide.grob <- which(gp[["layout"]][["name"]] == "guide-box")
+  if(length(guide.grob) == 0){
+    message("There is no legend present. Returning original plot.")
+    return(p)
+  }
+  gp <- gtable_add_grob(x = gp,
+                        grobs = gp[["grobs"]][[guide.grob]],
+                        t = empty.facet.panels[["t"]],
+                        l = empty.facet.panels[["l"]],
+                        b = empty.facet.panels[["b"]],
+                        r = empty.facet.panels[["r"]],
+                        name = "new-guide-box")
+
+  # squash the original guide box's row / column (whichever applicable)
+  # & empty its cell
+  guide.grob <- gp[["layout"]][guide.grob, ]
+  if(guide.grob[["l"]] == guide.grob[["r"]]){
+    gp <- gtable_squash_cols(gp, cols = guide.grob[["l"]])
+  }
+  if(guide.grob[["t"]] == guide.grob[["b"]]){
+    gp <- gtable_squash_rows(gp, rows = guide.grob[["t"]])
+  }
+  gp <- gtable_remove_grobs(gp, "guide-box")
+
+  return(gp)
+}
+
+```
+
+```{r}
+library(lemon)
+shift_legend2 <- function(p) {
+  # ...
+  # to grob
+  gp <- ggplotGrob(p)
+  facet.panels <- grep("^panel", gp[["layout"]][["name"]])
+  empty.facet.panels <- sapply(facet.panels, function(i) "zeroGrob" %in% class(gp[["grobs"]][[i]]))
+  empty.facet.panels <- facet.panels[empty.facet.panels]
+
+  # establish name of empty panels
+  empty.facet.panels <- gp[["layout"]][empty.facet.panels, ]
+  names <- empty.facet.panels$name
+  # example of names:
+  #[1] "panel-3-2" "panel-3-3"
+
+# now we just need a simple call to reposition the legend
+  reposition_legend(p, 'center', panel=names)
+}
+
+factor_plot_leg_adj <- shift_legend2(factor_plot)
+
+shift_legend3 <- function(p) {
+    pnls <- cowplot::plot_to_gtable(p) %>% gtable::gtable_filter("panel") %>%
+      with(setNames(grobs, layout$name)) %>% purrr::keep(~identical(.x,zeroGrob()))
+
+    if( length(pnls) == 0 ) stop( "No empty facets in the plot" )
+
+    lemon::reposition_legend( p, "center", panel=names(pnls) )
+}
+
+ggsave(file = "file1.png", shift_legend3(factor_plot), height = 7, width = 10)
+```
+
+***********************************************************************************************************************
+Plot change in opinion density distribution from beginning to end - consider the first 6 hours and then the final 6 hours of the data set
+
+```{r}
+plot_df_cat <- dat_df_plot
+
+# remove outliers or some how squeeze data to be normal before 
+# standardizing betwen -1 and 1
+lower_bound <- quantile(plot_df_cat$fit_raw, 0.02465, na.rm = TRUE)
+upper_bound <- quantile(plot_df_cat$fit_raw, 0.985, na.rm = TRUE)
+
+plot_df_cat %>% filter(plot_df_cat$fit_raw > upper_bound)
+plot_df_cat %>% filter(plot_df_cat$fit_raw < lower_bound)
+
+# other methods
+# out <- boxplot.stats(plot_df_cat$fit_raw)$out
+# out_ind <- which(plot_df_cat$fit_raw %in% c(out))
+# 
+# plot_df_cat_filt2 <- plot_df_cat[-out_ind,]
+
+# dat_df_plot <- dat_df_plot %>% 
+#   mutate(fit_updated = ifelse(fit_raw > 4, 4, ifelse(fit_raw < -2.122, -2.122, fit_raw)))
+
+plot_df_cat_filt <- plot_df_cat %>% 
+  filter(fit_raw > lower_bound & fit_raw < upper_bound) 
+
+plot_df_cat_filt <- plot_df_cat_filt %>% 
+  mutate(fit_updated_scaled = rescale(fit_raw, to = c(-1, 1)))
+
+hist(plot_df_cat_filt$fit_updated_scaled)
+```
+
+```{r cache=TRUE}
+dat_df_plot <- plot_df_cat_filt %>% 
+    mutate(opinion_category = case_when(fit_updated_scaled <= -0.75 ~ 'Strongly negative',
+                                        fit_updated_scaled >  -0.75 & fit_updated_scaled <= -0.25 ~ 'Negative',
+                                        fit_updated_scaled >  -0.25 & fit_updated_scaled <=  0.00 ~ 'Slightly negative',
+                                        fit_updated_scaled >   0.00 & fit_updated_scaled <=  0.25 ~ 'Slightly positive',
+                                        fit_updated_scaled >   0.25 & fit_updated_scaled <=  0.75 ~ 'Positive',
+                                        TRUE ~ 'Strongly positive'))
+
+# break down into time periods
+dat_df_plot_west <-  dat_df_plot %>% 
+  filter(attack == "Westminster") %>%
+  mutate(period = case_when(created_ymdhmin <= (ymd_hm("2017-03-22 14:40") + hours(6)) ~ "-3-3",
+                            created_ymdhmin >  (ymd_hm("2017-03-22 14:40") + hours(6))   & created_ymdhmin <= (ymd_hm("2017-03-22 14:40") + hours(12)) ~ "3-9",
+                            created_ymdhmin >  (ymd_hm("2017-03-22 14:40") + hours(12))  & created_ymdhmin <= (ymd_hm("2017-03-22 14:40") + hours(18)) ~ "9-12",
+                            created_ymdhmin >  (ymd_hm("2017-03-22 14:40") + hours(18))  & created_ymdhmin <= (ymd_hm("2017-03-22 14:40") + hours(24)) ~ "12-18",
+                            created_ymdhmin >  (ymd_hm("2017-03-22 14:40") + hours(24))  & created_ymdhmin <= (ymd_hm("2017-03-22 14:40") + hours(30)) ~ "18-24",
+                            created_ymdhmin >  (ymd_hm("2017-03-22 14:40") + hours(30))  & created_ymdhmin <= (ymd_hm("2017-03-22 14:40") + hours(36)) ~ "24-30",
+                            created_ymdhmin >  (ymd_hm("2017-03-22 14:40") + hours(36))  & created_ymdhmin <= (ymd_hm("2017-03-22 14:40") + hours(42)) ~ "30-36",
+                            TRUE ~ '36-42'))
+
+dat_df_plot_manc <-  dat_df_plot %>% 
+  filter(attack == "Manchester Arena") %>%
+  mutate(period = case_when(created_ymdhmin <= (ymd_hm("2017-05-22 21:30") + hours(6)) ~ "-3-3",
+                            created_ymdhmin >  (ymd_hm("2017-05-22 21:30") + hours(6))   & created_ymdhmin <= (ymd_hm("2017-05-22 21:30") + hours(12)) ~ "3-9",
+                            created_ymdhmin >  (ymd_hm("2017-05-22 21:30") + hours(12))  & created_ymdhmin <= (ymd_hm("2017-05-22 21:30") + hours(18)) ~ "9-12",
+                            created_ymdhmin >  (ymd_hm("2017-05-22 21:30") + hours(18))  & created_ymdhmin <= (ymd_hm("2017-05-22 21:30") + hours(24)) ~ "12-18",
+                            created_ymdhmin >  (ymd_hm("2017-05-22 21:30") + hours(24))  & created_ymdhmin <= (ymd_hm("2017-05-22 21:30") + hours(30)) ~ "18-24",
+                            created_ymdhmin >  (ymd_hm("2017-05-22 21:30") + hours(30))  & created_ymdhmin <= (ymd_hm("2017-05-22 21:30") + hours(36)) ~ "24-30",
+                            created_ymdhmin >  (ymd_hm("2017-05-22 21:30") + hours(36))  & created_ymdhmin <= (ymd_hm("2017-05-22 21:30") + hours(42)) ~ "30-36",
+                            TRUE ~ '36-42'))
+
+dat_df_plot_lond <-  dat_df_plot %>% 
+  filter(attack == "London Bridge") %>%
+  mutate(period = case_when(created_ymdhmin <= (ymd_hm("2017-06-03 21:06") + hours(6)) ~ "-3-3",
+                            created_ymdhmin >  (ymd_hm("2017-06-03 21:06") + hours(6))   & created_ymdhmin <= (ymd_hm("2017-06-03 21:06") + hours(12)) ~ "3-9",
+                            created_ymdhmin >  (ymd_hm("2017-06-03 21:06") + hours(12))  & created_ymdhmin <= (ymd_hm("2017-06-03 21:06") + hours(18)) ~ "9-12",
+                            created_ymdhmin >  (ymd_hm("2017-06-03 21:06") + hours(18))  & created_ymdhmin <= (ymd_hm("2017-06-03 21:06") + hours(24)) ~ "12-18",
+                            created_ymdhmin >  (ymd_hm("2017-06-03 21:06") + hours(24))  & created_ymdhmin <= (ymd_hm("2017-06-03 21:06") + hours(30)) ~ "18-24",
+                            created_ymdhmin >  (ymd_hm("2017-06-03 21:06") + hours(30))  & created_ymdhmin <= (ymd_hm("2017-06-03 21:06") + hours(36)) ~ "24-30",
+                            created_ymdhmin >  (ymd_hm("2017-06-03 21:06") + hours(36))  & created_ymdhmin <= (ymd_hm("2017-06-03 21:06") + hours(42)) ~ "30-36",
+                            TRUE ~ '36-42'))
+
+dat_df_plot_fins <-  dat_df_plot %>% 
+  filter(attack == "Finsbury Park") %>%
+  mutate(period = case_when(created_ymdhmin <= (ymd_hm("2017-06-18 23:05") + hours(6)) ~ "-3-3",
+                            created_ymdhmin >  (ymd_hm("2017-06-18 23:05") + hours(6))   & created_ymdhmin <= (ymd_hm("2017-06-18 23:05") + hours(12)) ~ "3-9",
+                            created_ymdhmin >  (ymd_hm("2017-06-18 23:05") + hours(12))  & created_ymdhmin <= (ymd_hm("2017-06-18 23:05") + hours(18)) ~ "9-12",
+                            created_ymdhmin >  (ymd_hm("2017-06-18 23:05") + hours(18))  & created_ymdhmin <= (ymd_hm("2017-06-18 23:05") + hours(24)) ~ "12-18",
+                            created_ymdhmin >  (ymd_hm("2017-06-18 23:05") + hours(24))  & created_ymdhmin <= (ymd_hm("2017-06-18 23:05") + hours(30)) ~ "18-24",
+                            created_ymdhmin >  (ymd_hm("2017-06-18 23:05") + hours(30))  & created_ymdhmin <= (ymd_hm("2017-06-18 23:05") + hours(36)) ~ "24-30",
+                            created_ymdhmin >  (ymd_hm("2017-06-18 23:05") + hours(36))  & created_ymdhmin <= (ymd_hm("2017-06-18 23:05") + hours(42)) ~ "30-36",
+                            TRUE ~ '36-42'))
+
+dat_df_plot_pars <-  dat_df_plot %>% 
+  filter(attack == "Parsons Green") %>%
+  mutate(period = case_when(created_ymdhmin <= (ymd_hm("2017-09-15 07:20") + hours(6)) ~ "-3-3",
+                            created_ymdhmin >  (ymd_hm("2017-09-15 07:20") + hours(6))   & created_ymdhmin <= (ymd_hm("2017-09-15 07:20") + hours(12)) ~ "3-9",
+                            created_ymdhmin >  (ymd_hm("2017-09-15 07:20") + hours(12))  & created_ymdhmin <= (ymd_hm("2017-09-15 07:20") + hours(18)) ~ "9-12",
+                            created_ymdhmin >  (ymd_hm("2017-09-15 07:20") + hours(18))  & created_ymdhmin <= (ymd_hm("2017-09-15 07:20") + hours(24)) ~ "12-18",
+                            created_ymdhmin >  (ymd_hm("2017-09-15 07:20") + hours(24))  & created_ymdhmin <= (ymd_hm("2017-09-15 07:20") + hours(30)) ~ "18-24",
+                            created_ymdhmin >  (ymd_hm("2017-09-15 07:20") + hours(30))  & created_ymdhmin <= (ymd_hm("2017-09-15 07:20") + hours(36)) ~ "24-30",
+                            created_ymdhmin >  (ymd_hm("2017-09-15 07:20") + hours(36))  & created_ymdhmin <= (ymd_hm("2017-09-15 07:20") + hours(42)) ~ "30-36",
+                            TRUE ~ '36-42'))
+```
+
+
+```{r}
+dat_df_plot_west$attack <- "Westminster"
+dat_df_plot_manc$attack <- "Manchester Arena"
+dat_df_plot_lond$attack <- "London Bridge"
+dat_df_plot_fins$attack <- "Finsbury Park"
+dat_df_plot_pars$attack <- "Parsons Green"
+
+dat_df_plot_final<- rbind(dat_df_plot_west, 
+                          dat_df_plot_manc, 
+                          dat_df_plot_lond, 
+                          dat_df_plot_fins, 
+                          dat_df_plot_pars)
+
+dat_df_plot_final <- transform(dat_df_plot_final, 
+                               attack = factor(attack, 
+                                               levels = c("Westminster", "Manchester Arena", "London Bridge", 
+                                                          "Finsbury Park", "Parsons Green")))
+```
+
+
+```{r cache=TRUE}
+plot_df <- dat_df_plot_final 
+
+# plot_df <- dat_df %>% 
+#   filter(period == "initial" | period == "final") 
+
+plot_df$period <- factor(plot_df$period, 
+                         levels = c("-3-3", "3-9", "9-12", "12-18", "18-24", "24-30", "30-36", "36-42"))
+                                             
+plot_df$opinion_category <- factor(plot_df$opinion_category,
+                                   levels = c("Strongly positive", "Positive", "Slightly positive",
+                                              "Slightly negative", "Negative", "Strongly negative"))
+plot_df <- plot_df %>% 
+  filter(!is.na(opinion_category))
+
+plot_df_num <- plot_df %>% 
+  group_by(attack, period, opinion_category) %>% 
+  summarise(n = n()) %>% 
+  mutate(freq = n / sum(n))
+
+# add percentages 
+# https://stackoverflow.com/questions/55165372/how-to-label-geom-barposition-fill-using-geom-text
+factor_plot <- ggplot(arrange(plot_df_num, opinion_category),
+                      aes(x = period, 
+                          y = freq,
+                          fill = opinion_category)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Strongly positive" = "dodgerblue4",
+                               "Positive" = "dodgerblue1",
+                               "Slightly positive" = "skyblue1",
+                               "Slightly negative" = "lightcoral",
+                               "Negative" = "indianred",
+                               "Strongly negative" = "firebrick4")) + 
+  # coord_flip() + 
+  # adjust labels
+  labs(title = "Change in opinions over time",
+       x = "Hours after attack",
+       y = "Proportion") +
+  # adjust theme elements
+  theme_bw() +
+  theme(axis.title.x = element_text(margin = margin(10, 0, 0, 0)),
+        axis.title.y = element_text(margin = margin(0, 10, 0, 0)),
+        plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(angle = 60, vjust = 0.9, hjust=1), 
+        plot.subtitle = element_text(hjust = 0.5),
+        plot.margin = unit(c(0.25, 0.5, 0.25, 0.5), "cm")) +
+  guides(fill = guide_legend(title = "Opinion towards immigration")) +
+  facet_wrap(~ attack, nrow = 2, ncol = 3)
+```
+
+```{r}
+ggsave(file = "file2.png", shift_legend3(factor_plot), height = 7, width = 10)
+```
+```{r}
+plot_df_dens <- plot_df %>% 
+  filter(period == "-3-3" | period == "36-42") %>% 
+  mutate(Period = ifelse(period == "-3-3", "Initial", "Final"))
+
+plot_dens_means <- plot_df_dens %>% 
+  select(attack, Period, fit_updated_scaled) %>% 
+  group_by(attack, Period) %>% 
+  summarise(mean_fit = mean(fit_updated_scaled))
+
+dist_plot <- plot_df_dens %>% 
+  ggplot(aes(x = fit_updated_scaled, 
+             fill = Period)) + 
+  geom_density(alpha = 0.3) +
+  geom_vline(data = plot_dens_means, 
+             aes(xintercept = mean_fit,
+                 colour = Period),
+             linetype = "dashed") + 
+  # adjust labels
+  labs(title = "Density distribution of initial and final opinions",
+       x = "Scaled opinion value",
+       y = "Frequency") +
+  # adjust theme elements
+  theme_minimal() +
+  theme(axis.title.x = element_text(margin = margin(10, 0, 0, 0)),
+        axis.title.y = element_text(margin = margin(0, 10, 0, 0)),
+        plot.title = element_text(hjust = 0.5),
+        plot.margin = unit(c(0.25, 0.5, 0.25, 0.5), "cm")) +
+  facet_wrap(~ attack, scale = "free_y", nrow = 2, ncol = 3)
+```
+
+```{r}
+ggsave(file = "file2.png", shift_legend3(dist_plot), height = 7, width = 10)
+```
+
+***********************************************************************************************************************
+
+Get table for initial and final distributions
+
+```{r}
+plot_df_dens %>% 
+  group_by(attack, Period) %>% 
+  summarise(mean_fit = mean(fit_updated_scaled))
+
+attack_table <- plot_df_dens %>%
+  group_by(attack, Period) %>% 
+  select(attack, Period, fit_updated_scaled) %>% 
+  summarise_each(funs(min = min, 
+                      q25 = quantile(., 0.25), 
+                      median = median, 
+                      q75 = quantile(., 0.75), 
+                      max = max,
+                      mean = mean, 
+                      sd = sd)) %>% 
+  arrange(attack, desc(Period))
+
+attack_table[, -c(1:2)] <- round(attack_table[, -c(1:2)], 3)
+
+write.csv(attack_table,'attack_table.csv')
+```
+
+************************************************************************************************************************
+
+Save initial distribution for initialisation of model 
+
+```{r}
+# get initial opinion distributions
+plot_df_dens_initial <- plot_df_dens %>% 
+  filter(Period == "Initial") 
+
+# saveRDS(plot_df_dens_initial, "initial_opinions.RDS")
+```
+
+************************************************************************************************************************
+
+Extra code
+
+```{r}
+boxplot_plot <- plot_df_dens %>% 
+  ggplot(aes(x = fit_updated_scaled, 
+             fill = distribution)) + 
+  geom_boxplot() +
+  # adjust labels
+  labs(title = "Density distribution of initial and final opinions",
+       x = "Scaled opinion value",
+       y = "Frequency") +
+  # adjust theme elements
+  theme_minimal() +
+  theme(axis.title.x = element_text(margin = margin(10, 0, 0, 0)),
+        axis.title.y = element_text(margin = margin(0, 10, 0, 0)),
+        plot.title = element_text(hjust = 0.5),
+        plot.margin = unit(c(0.25, 0.5, 0.25, 0.5), "cm")) +
+  facet_wrap(~ attack, scale = "free_y", nrow = 2, ncol = 3)
+```
