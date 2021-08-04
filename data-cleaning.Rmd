@@ -1,0 +1,427 @@
+---
+title: "Data Cleaning and Description"
+author: "Candidate 13343"
+date: "6/23/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+suppressMessages(library(httr))
+suppressMessages(library(jsonlite))
+suppressMessages(library(devtools))
+suppressMessages(library(academictwitteR))
+suppressMessages(library(dplyr))
+suppressMessages(library(tidyr))
+suppressMessages(library(quanteda))
+suppressMessages(library(stringr))
+suppressMessages(library(topicmodels))
+suppressMessages(library(topicdoc))
+suppressMessages(library(ldatuning))
+suppressMessages(library(LSX))
+suppressMessages(library(quanteda.sentiment))
+suppressMessages(library(zoo))
+suppressMessages(library(cvTools))
+suppressMessages(library(reshape))
+suppressMessages(library(ggplot2))
+suppressMessages(library(grid))
+suppressMessages(library(lubridate))
+suppressMessages(library(cvTools))
+suppressMessages(library(scales))
+suppressMessages(library(gridExtra))
+suppressMessages(library(igraph))
+suppressMessages(library(stringr))
+suppressMessages(library(topicmodels))
+suppressMessages(library(topicdoc))
+suppressMessages(library(ldatuning))
+suppressMessages(library(LSX))
+```
+
+************************************************************************************************************
+
+### Initial Analysis
+
+#### Read in and clean tweets data
+
+```{r cache=TRUE, eval=FALSE}
+# Read in data 
+all_tweets_west <- readRDS("all_westminster_tweets.RDS")
+all_tweets_manc <- readRDS("all_manchester_tweets.RDS")
+all_tweets_lond <- readRDS("all_london_tweets.RDS")
+all_tweets_fins <- readRDS("all_finsbury_tweets.RDS")
+all_tweets_pars <- readRDS("all_parsons_tweets.RDS")
+
+# Select distinct tweet ids
+all_tweets_west <- all_tweets_west %>% 
+  distinct(id, .keep_all = TRUE)
+
+all_tweets_manc <- all_tweets_manc %>% 
+  distinct(id, .keep_all = TRUE)
+
+all_tweets_lond <- all_tweets_lond %>% 
+  distinct(id, .keep_all = TRUE)
+
+all_tweets_fins <- all_tweets_fins %>% 
+  distinct(id, .keep_all = TRUE)
+
+all_tweets_pars <- all_tweets_pars %>% 
+  distinct(id, .keep_all = TRUE)
+```
+
+```{r cache=TRUE, eval=FALSE}
+#  \\b word boundary (e.g. without boundary, ban picks up husband)
+attack_tweets_west <- all_tweets_west %>% 
+  filter(str_detect(all_tweets_west$text,
+  "#westminster|#westminsterattack|#prayforlondon|\\bwestminster attack*|\\#terroristattack|#KhalidMasood|\\bKhalid Masood|\\bmasood|
+  \\battacker|#londonattack|\\bwestminster|
+  \\bunited kingdom|\\bUK\\b|\\bbritain*|\\bGB\\b|\\bGBR\\b|\\bengland*|\\blondon*|\\bmp\\b|
+  |\\btheresa may|\\btory\\b|\\tories\\b|\\bbrexit\\b|\\blabour*|\\bhome office*|
+  \\bjeremy corbyn|\\blibdem*\\b|\\bukip*\\b|\\blibdem*\\b|\\bukip*\\b"))
+
+attack_tweets_manc <- all_tweets_manc %>% 
+  filter(str_detect(all_tweets_manc$text, 
+  "#prayformanchester|#manchester|#manchesterattack|#manchesterterroristattack|#manchesterbombing|#manchesterarenabombing|
+  #arianastaystrong|#arianagrande|#standtogether|#prayforariana|#prayforarianators|#prayfortheworld|#manchesterbombing|
+  #onelovemanchester|#onelove|#manchesterexplosion|\\bSalman Ramadan Abedi|\\bSalman Abedi|\\bAbedi|\\b#SalmanRamadanAbedi|
+  \\b#SalmanAbedi|\\b#Abedi|\\bmanchester*|\\battack*|\\bariana|\\bconcert\\b|\\barena\\b|\\bwestminster*|#terroristattack*|#londonattack*|
+  \\bunited kingdom|\\bUK\\b|\\bbritain*|\\bGB\\b|\\bGBR\\b|\\bengland*|\\blondon*|\\bmp\\b|
+  \\btheresa may|\\btory\\b|\\tories\\b|\\bbrexit\\b|\\blabour*|\\bhome office*|
+  \\bjeremy corbyn|\\blibdem*\\b|\\bukip*\\b|\\blibdem*\\b|\\bukip*\\b"))
+
+attack_tweets_lond <- all_tweets_lond %>%
+  filter(str_detect(all_tweets_lond$text, 
+"#ForLondon|#TurnToLove|#LoveWillWin|#ISISWillLose|#LondonBridge|#LondonAttacks|#BoroughMarket|#londonbridgeattack|#terroristattack|
+#prayforlondon|london bridge|\\bKhuram Shazad Butt|\\b#KhuramShazadButt|\\b#KhuramButt|\\bRedouane|\\b#RachidRedouane|\\b#Redouane|\\bYoussef Zaghba|\\b#YoussefZaghba|\\b#Zaghba|\\bZaghba|#terroristattack*|\\bmanchester*|\\bwestminster*|#londonattack|
+\\bunited kingdom|\\bUK\\b|\\bbritain*|\\bGB\\b|\\bGBR\\b|\\bengland*|\\blondon*|\\bmp\\b|\\btheresa may|
+\\btory\\b|\\tories\\b|\\bbrexit\\b|\\blabour*|\\bhome office*|\\bjeremy corbyn|\\blibdem*\\b|\\bukip*\\b|
+\\blibdem*\\b|\\bukip*\\b"))
+
+attack_tweets_fins <- all_tweets_fins %>% 
+  filter(str_detect(all_tweets_fins$text, 
+  "#finsburyparkattack|#finsburypark|#finsburyattack|#finsburyterroristattack|#finsburyterrorist|#westandtogether| 
+  \\bfinsbury*|\\bwestminster*|#terroristattack*|#londonattack*|\\blondon|\\bmanchester|\\bdarren osborne|\\b#DarrenOsborne|\\bMakram Ali|
+  \\bunited kingdom|\\bUK\\b|\\bbritain*|\\bGB\\b|\\bGBR\\b|\\bengland*|\\blondon*|\\bmp\\b|
+  |\\btheresa may|\\btory\\b|\\tories\\b|\\bbrexit\\b|\\blabour*|\\bhome office*|
+  \\bjeremy corbyn|\\blibdem*\\b|\\bukip*\\b|\\blibdem*\\b|\\bukip*\\b|\\bnigel farage|\\bfarage\\b"))
+
+attack_tweets_pars <- all_tweets_pars %>%
+  filter(str_detect(all_tweets_pars$text, 
+  "#parsonsgreen|#londonunited|#londonattack|#parsonsgreenattack|#london|\\bparsons*|#terroristattack|
+  \\bmanchester*|\\bwestminster*|\\blondon*|#londonattack*|
+  \\bunited kingdom|\\bUK\\b|\\bbritain*|\\bGB\\b|\\bGBR\\b|\\bengland*|\\blondon*|\\bmp\\b|
+  \\btheresa may|\\btory\\b|\\tories\\b|\\bbrexit\\b|\\blabour*|
+  \\blibdem*\\b|\\bukip*\\b|\\bleavers\\b|remainer*\\b|\\bfarage"))
+```
+
+Read in filtered data of all attacks over all days
+
+```{r cache=TRUE, eval=TRUE}
+attack_tweets_west <- readRDS("attack_tweets_filt_west.RDS")
+attack_tweets_manc <- readRDS("attack_tweets_filt_manc.RDS")
+attack_tweets_lond <- readRDS("attack_tweets_filt_lond.RDS")
+attack_tweets_fins <- readRDS("attack_tweets_filt_fins.RDS")
+attack_tweets_pars <- readRDS("attack_tweets_filt_pars.RDS")
+```
+
+```{r cache=TRUE, eval=TRUE}
+# Function to clean the data frame more 
+clean_tweets_df <- function(attack_tweets_df) {
+  
+  attack_tweets_df <- attack_tweets_df %>%
+    # Filter to ensure English tweets
+    filter(lang == "en") %>%
+    # Select relevant fields
+    select(author_id, conversation_id, created_at,
+           id, in_reply_to_user_id, referenced_tweets, text) %>% 
+    # Get created at in Date format:
+    mutate(created_ymd = ymd(substr(created_at, 1, 10))) %>% 
+    mutate(created_ymdhourly = ymd_h(paste(substr(created_at, 1, 10), 
+                                         substr(created_at, 12, 13)))) %>% 
+    mutate(created_ymdhmin = ymd_hm(paste(substr(created_at, 1, 10), 
+                                           substr(created_at, 12, 16)))) %>% 
+    # Split days in half (representing at 06:00 and 18:00 for now)
+    mutate(created_ymdhalfday = ymd_h(paste(substr(created_at, 1, 10), 
+                                            ifelse(substr(created_at, 12, 13) >= 12, 18, 06)))) %>% 
+    # Split days in quarters (representing at 3, 9, 25, 21 for now)
+    mutate(created_ymdquarterday = ymd_h(paste(substr(created_at, 1, 10), 
+                                               ifelse(substr(created_at, 12, 13) >= 12,
+                                                      ifelse(substr(created_at, 12, 13) >= 18, 21, 15),
+                                                      ifelse(substr(created_at, 12, 13) >= 06, 09, 03)))))
+  return(attack_tweets_df)
+}
+
+attack_tweets_west <- clean_tweets_df(attack_tweets_west)
+attack_tweets_lond <- clean_tweets_df(attack_tweets_lond)
+attack_tweets_manc <- clean_tweets_df(attack_tweets_manc)
+attack_tweets_fins <- clean_tweets_df(attack_tweets_fins)
+attack_tweets_pars <- clean_tweets_df(attack_tweets_pars)
+```
+
+```{r cache=TRUE eval=FALSE}
+# number of retweets
+sum(grepl("^RT @", attack_tweets_west$text, ignore.case = TRUE))
+sum(grepl("^RT @", attack_tweets_manc$text, ignore.case = TRUE))
+sum(grepl("^RT @", attack_tweets_lond$text, ignore.case = TRUE))
+sum(grepl("^RT @", attack_tweets_fins$text, ignore.case = TRUE))
+sum(grepl("^RT @", attack_tweets_pars$text, ignore.case = TRUE))
+```
+
+```{r cache=TRUE}
+make_dfm <- function(corpus, stem, verbose = FALSE) {
+  
+  dfm <- corpus %>%
+    tokens(
+      remove_punct = TRUE,
+      remove_url = TRUE,
+      remove_symbols = TRUE,
+      remove_numbers = TRUE
+      ) %>% 
+  tokens_remove(
+    c(stopwords("en"),
+      # Remove common Twitter abbreviations
+      "t.co", "rt", "amp",
+      "&amp", "http", "https")
+    ) %>% 
+  tokens_select(
+    min_nchar = 2L
+    ) %>% 
+  dfm(
+    stem = stem,
+    verbose = verbose
+    )
+  
+  return(dfm)
+}
+```
+
+```{r cache=TRUE}
+# Create corpus of all individual tweets 
+corpus_west <- corpus(attack_tweets_west, text = "text")
+corpus_manc <- corpus(attack_tweets_manc, text = "text")
+corpus_lond <- corpus(attack_tweets_lond, text = "text")
+corpus_fins <- corpus(attack_tweets_fins, text = "text")
+corpus_pars <- corpus(attack_tweets_pars, text = "text")
+
+dfm_west <- make_dfm(corpus_west, stem = FALSE, verbose = TRUE)
+dfm_manc <- make_dfm(corpus_manc, stem = FALSE, verbose = TRUE)
+dfm_lond <- make_dfm(corpus_lond, stem = FALSE, verbose = TRUE)
+dfm_fins <- make_dfm(corpus_fins, stem = FALSE, verbose = TRUE)
+dfm_pars <- make_dfm(corpus_pars, stem = FALSE, verbose = TRUE)
+```
+
+Explore data: Top 20 words and wordcloud
+
+```{r cache=TRUE, echo=FALSE, eval=FALSE}
+# Look at top words (enter dfm)
+topfeatures(dfm_west, 20)
+
+# simple wordcloud 
+# enter dfm here
+dfm_west %>%
+  # remove common words
+  dfm_remove(c("uk", "immigration", "london", "refugees",
+               "immigrants", "refugee")) %>% 
+  textplot_wordcloud(rotation = 0, 
+                     min_size = 0.8, 
+                     max_size = 3.6, 
+                     max_words = 250)
+
+# example: see keywords in context 
+attack_tweets_west$text[grepl("visa", attack_tweets_west$text)]
+kwic(corpus_west, "sovereignty", window = 10)
+
+# top hashtags
+hashtag_dfm_west <- dfm(dfm_west, select = "#*")
+
+# extract top n_hashtags
+topfeatures(hashtag_dfm_west, 50)
+```
+
+**********************************************************************************************************************************
+
+### Descriptive Analysis
+
+#### Plot number of tweets over time
+
+```{r cache=TRUE, echo=FALSE}
+# Look at number of tweets per time period 
+# enter attack time in UTC
+plot_tweets_per_period <- function(dfm, time_per = "hourly", attack_time = "") {
+  
+  plot_df <- docvars(dfm)
+  
+  if (time_per == "hourly"){
+    groupby_var <- quo(created_ymdhourly)
+    } else if (time_per == "quarterday"){
+      groupby_var <- quo(created_ymdquarterday)
+    } else if (time_per == "halfday" ){
+      groupby_var <- quo(created_ymdhalfday)  
+    } else if (time_per == "daily" ){
+      groupby_var <- quo(created_ymd)
+    } else if (time_per == "minute" ){
+      groupby_var <- quo(created_ymdhmin)
+    }
+  
+    plot_df_grouped <- plot_df %>% 
+      group_by(!! groupby_var) %>%
+      summarise(num_tweets = n()) 
+    
+    y_label_coord <- max(plot_df_grouped$num_tweets)
+    
+    tweets_per_period_plot <- plot_df_grouped %>% 
+      ggplot(aes(
+        x = !! groupby_var,
+        y = num_tweets)
+        ) +
+      geom_line() +
+      # Add vertical line at time of attack - need to fix for daily plot
+      geom_vline(xintercept = as.numeric(ymd_hm(attack_time)),
+                 linetype = 4, colour = "red") +
+      geom_vline(xintercept = as.numeric(ymd_hm(attack_time) + days(1)),
+                 linetype = 4, colour = "red") +
+      geom_vline(xintercept = as.numeric(ymd_hm(attack_time) + days(2)),
+                 linetype = 4, colour = "red") +
+      # Label attack time - need to fix
+      annotate("text",
+               x = ymd_hm(attack_time),
+               y = (y_label_coord),
+               label = "Time of attack",
+               # label = paste("Time of attacK:", as.character(attack_time)),
+               size = 3.25, 
+               hjust = 0,
+               angle = 90,
+               vjust = 0) +
+      labs(title = "Number of tweets over time",
+           subtitle = "All English tweets about the immigration & the attack or the UK",
+           x = "Date",
+           y = "Number of tweets") +
+      theme_bw() +
+      theme(legend.position = "none",
+            plot.title = element_text(hjust = 0.5),
+            plot.subtitle = element_text(hjust = 0.5),
+            plot.margin = unit(c(0.5, 0.5, 0.5, 0.5), "cm"))
+    
+  return(tweets_per_period_plot)
+}
+```
+
+```{r cache=TRUE}
+num_tweets_plot_west <- plot_tweets_per_period(dfm_west, time_per = "hourly", attack_time = "2017-03-22 14:40") 
+num_tweets_plot_manc <- plot_tweets_per_period(dfm_manc, time_per = "hourly", attack_time = "2017-05-22 21:30") 
+num_tweets_plot_lond <- plot_tweets_per_period(dfm_lond, time_per = "hourly", attack_time = "2017-06-03 21:06") 
+num_tweets_plot_fins <- plot_tweets_per_period(dfm_fins, time_per = "hourly", attack_time = "2017-06-18 23:05") 
+num_tweets_plot_pars <- plot_tweets_per_period(dfm_pars, time_per = "hourly", attack_time = "2017-09-15 07:20")
+```
+
+```{r cache=TRUE}
+# Plot attacks together
+tpd_plot_all <- grid.arrange(
+  num_tweets_plot_west,
+  num_tweets_plot_manc,
+  num_tweets_plot_lond,
+  num_tweets_plot_fins,
+  num_tweets_plot_pars,
+  ncol = 1,
+  nrow = 5
+  )
+# save as .png file
+ggsave(tpd_plot_all, file = "tpd_plot_all.png", height = 16, width = 12)
+```
+
+************************************************************************************************************************************************
+Filter to final data - 48 hours after attack 
+
+Times of attacks:
+- "2017-03-22 14:40"
+- "2017-05-22 21:30"
+- "2017-06-03 21:06"
+- "2017-06-18 23:05"
+- "2017-09-15 07:20"
+
+```{r cache=TRUE}
+# filter to the first few days 
+attack_tweets_fin_west <- attack_tweets_west %>% 
+  filter(created_ymdhourly >= ymd_hm("2017-03-22 11:40")) %>% 
+  filter(created_ymdhourly <= ymd_hm("2017-03-24 14:40"))
+
+attack_tweets_fin_manc <- attack_tweets_manc %>% 
+  filter(created_ymdhourly >= ymd_hm("2017-05-22 18:30")) %>% 
+  filter(created_ymdhourly <= ymd_hm("2017-05-24 21:30"))
+
+attack_tweets_fin_lond <- attack_tweets_lond %>% 
+  filter(created_ymdhourly >= ymd_hm("2017-06-03 18:06")) %>% 
+  filter(created_ymdhourly <= ymd_hm("2017-06-05 21:06"))
+
+attack_tweets_fin_fins <- attack_tweets_fins %>% 
+  filter(created_ymdhourly >= ymd_hm("2017-06-18 21:05")) %>% 
+  filter(created_ymdhourly <= ymd_hm("2017-06-20 23:05"))  
+
+attack_tweets_fin_pars <- attack_tweets_pars %>% 
+  filter(created_ymdhourly >= ymd_hm("2017-09-15 04:20")) %>% 
+  filter(created_ymdhourly <= ymd_hm("2017-09-17 07:20"))  
+```
+
+```{r}
+# saveRDS(attack_tweets_fin_west, "attack_tweets_west_final.RDS")
+# saveRDS(attack_tweets_fin_manc, "attack_tweets_manc_final.RDS")
+# saveRDS(attack_tweets_fin_lond, "attack_tweets_lond_final.RDS")
+# saveRDS(attack_tweets_fin_fins, "attack_tweets_fins_final.RDS")
+# saveRDS(attack_tweets_fin_pars, "attack_tweets_pars_final.RDS")
+
+attack_tweets_west_final <- readRDS("attack_tweets_west_final.RDS")
+attack_tweets_manc_final <- readRDS("attack_tweets_manc_final.RDS")
+attack_tweets_lond_final <- readRDS("attack_tweets_lond_final.RDS")
+attack_tweets_fins_final <- readRDS("attack_tweets_fins_final.RDS")
+attack_tweets_pars_final <- readRDS("attack_tweets_pars_final.RDS")
+```
+
+Cut off the last three hours so to have even number of hours for analysis (48)
+
+```{r}
+attack_tweets_west_final2 <- attack_tweets_west_final %>% 
+  filter(created_ymdhourly <= ymd_hm("2017-03-24 11:40"))
+
+attack_tweets_manc_final2 <- attack_tweets_manc_final %>% 
+  filter(created_ymdhourly <= ymd_hm("2017-05-24 18:30"))
+
+attack_tweets_lond_final2 <- attack_tweets_lond_final %>% 
+  filter(created_ymdhourly <= ymd_hm("2017-06-05 18:06"))
+
+attack_tweets_fins_final2 <- attack_tweets_fins_final %>% 
+  filter(created_ymdhourly <= ymd_hm("2017-06-20 21:05"))  
+
+attack_tweets_pars_final2 <- attack_tweets_pars_final %>% 
+  filter(created_ymdhourly <= ymd_hm("2017-09-17 04:20"))  
+```
+
+```{r}
+# saveRDS(attack_tweets_west_final2, "attack_tweets_west_final2.RDS")
+# saveRDS(attack_tweets_manc_final2, "attack_tweets_manc_final2.RDS")
+# saveRDS(attack_tweets_lond_final2, "attack_tweets_lond_final2.RDS")
+# saveRDS(attack_tweets_fins_final2, "attack_tweets_fins_final2.RDS")
+# saveRDS(attack_tweets_pars_final2, "attack_tweets_pars_final2.RDS")
+```
+
+```{r}
+length(unique(attack_tweets_west_final2$author_id))
+length(unique(attack_tweets_west_final2$id))
+
+length(unique(attack_tweets_manc_final2$author_id))
+length(unique(attack_tweets_manc_final2$id))
+
+length(unique(attack_tweets_lond_final2$author_id))
+length(unique(attack_tweets_lond_final2$id))
+
+length(unique(attack_tweets_fins_final2$author_id))
+length(unique(attack_tweets_fins_final2$id))
+
+length(unique(attack_tweets_pars_final2$author_id))
+length(unique(attack_tweets_pars_final2$id))
+```
+
+
