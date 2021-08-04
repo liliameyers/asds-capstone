@@ -1,0 +1,234 @@
+---
+title: "Data Collection"
+author: "Candidate 13343"
+date: "6/7/2021"
+output: html_document
+---
+
+```{r}
+# install.packages("academictwitteR")
+# devtools::install_github("cjbarrie/academictwitteR", build_vignettes = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+library(academictwitteR)
+library(dplyr)
+library(tidyr)
+library(quanteda)
+library(stringr)
+library(tidyverse)
+library(jsonlite)
+```
+
+```{r}
+# Twitter bearer token entered here
+bearer_token <- ""
+```
+
+## Functions to process JSON data 
+
+### Function to combine user info 
+
+```{r}
+# Function to combine all user info
+bind_user_info <- function(parent_dir = "") {
+  
+  # Set working directory to parent folder
+  setwd(paste("/Users/liliameyers/Desktop/MY498/July Data/", parent_dir, sep = ""))  
+  
+  # Create empty data frame for user info
+  all_users_df <- data.frame()
+  
+  # Iterate over all files (all chunks of time, each individual query)
+  for (file in list.files()) {
+    
+    # get into the sub directory for each query
+    setwd(file)
+    print(file)
+  
+    # get into each queries files (data and users)
+    for (sub_file in list.files()) {
+    
+      # If it is a user file 
+      if(substr(sub_file, 1, 5) == "users") {
+        
+        print(paste(file, sub_file))
+        
+        # read JSON to data frame 
+        user_json_df <- fromJSON(sub_file)
+        
+        # Just get user info
+        user_df <- user_json_df$users
+      
+        
+        # remove withheld column
+        if ("withheld" %in% colnames(user_df)){
+          user_df <- user_df %>% select(-c(withheld))
+        }
+        
+        if ("context_annotations" %in% colnames(user_df)){
+          user_df <- user_df %>% select(-c(context_annotations))
+        }
+        
+        # order columns  
+        user_df_ordered <- user_df[, order(names(user_df))]
+  
+        # combine to total data frame
+        row.names(user_df_ordered) <- c()
+        row.names(all_users_df) <- c()
+        all_users_df <- dplyr::bind_rows(all_users_df, user_df_ordered)
+        
+        print(nrow(all_users_df))
+      }
+      setwd("./")
+    }
+    # pop back up to the parent directory
+    setwd("../")
+  }
+  return(all_users_df)
+}
+```
+
+### Function to read single folder for one query (tweets errored out) to save as RDS
+
+```{r}
+# Function to bind individual JSON tweet files (i.e., had issues when scraping and 
+# errored out without saving to object)
+bind_individual_json_files <- function(parent_folder = "", individual_folder = "") {
+  
+  setwd(paste("/Users/liliameyers/Desktop/MY498/July Data/", parent_folder, sep = ""))
+  
+  # Initialise data frame for tweets in folder
+  total_df <- data.frame()
+  
+  # Iterate over all files (all chunks of time, each individual query)
+  for (file in list.files()) {
+    
+    if (file == individual_folder) {
+      
+      # get into the sub directory for each query
+      setwd(file)
+      print(file)
+      
+      # get into each queries files (data and users)
+      for (sub_file in list.files()) {
+        
+        # If it is a data file 
+        if (substr(sub_file, 1, 4) == "data") {
+          
+          print(paste(file, sub_file))
+          
+          json_df <- fromJSON(sub_file)
+          
+          print(nrow(json_df))
+          
+          # Remove withheld column
+          if ("withheld" %in% colnames(json_df)) {
+            json_df <- json_df %>% select(-c(withheld))
+          }
+          
+          # Remove context_annotations column
+          if ("context_annotations" %in% colnames(json_df)){
+            json_df <- json_df %>% select(-c(withheld))
+          }
+          
+          # Order columns  
+          json_df_ordered <- json_df[, order(names(json_df))]
+          
+          
+          # combine to total data frame
+          row.names(json_df_ordered) <- c()
+          row.names(total_df) <- c()
+          total_df <- dplyr::bind_rows(total_df, json_df_ordered)
+          
+          # Print number of tweets collated
+          print(nrow(total_df))
+        }
+      }
+    }
+  }
+  return(total_df)
+}
+```
+
+### Function to read all RDS files and bind them into one data frame for entire attack
+
+```{r}
+# Function to combine all RDSs
+bind_all_tweets <- function(rds_dir = "") {
+  
+  setwd("/Users/liliameyers/Desktop/MY498/July Data/")
+  all_fls <- list.files(rds_dir, full.names = TRUE)
+  
+  # create empty data frame for tweets
+  all_tweets_total <- data.frame()
+  
+  for(i in 1:length(all_fls)) {
+    
+    df_rds <- readRDS(all_fls[i])
+    
+    # remove withheld column
+    if("withheld" %in% colnames(df_rds)){
+      df_rds <- df_rds %>% select(-c(withheld))
+    }
+    
+    # remove context_annotations_columns
+    if("context_annotations" %in% colnames(df_rds)){
+      df_rds <- df_rds %>% select(-c(context_annotations))
+    }
+    
+    # order columns  
+    df_rds_ordered <- df_rds[, order(names(df_rds))]
+    
+    # combine to total data frame
+    row.names(df_rds_ordered) <- c()
+    row.names(all_tweets_total) <- c()
+    all_tweets_total <- dplyr::bind_rows(all_tweets_total, df_rds_ordered)
+    print(nrow(all_tweets_total))
+  }
+  
+  return(all_tweets_total)
+}
+```
+
+```{r}
+# General query to collect tweets about immigration
+imm_query <- academictwitteR::build_query(
+"(refugee OR refugees OR asylum-seeker OR asylum-seekers OR asylum seeker OR asylum seekers OR asylumseeker OR asylumseekers OR seeking asylum OR seek asylum OR sought asylum OR migrant OR migrants OR migration OR immigrant OR immigrants OR immigration OR emigrant OR emigrants OR emigration OR travel ban OR imigrant OR imigrants OR imigration OR close-border OR close-borders OR closeborder OR close border OR closeborders OR close borders OR restrict borders OR deportation OR open-border OR open-borders OR openborder OR open border OR openborders OR open borders OR cross-channel OR cross channel OR crosschannel OR foreign worker OR foreign workers OR foreign visa OR foreign visas OR worker visa OR worker visas OR worker permit OR worker permits OR first-generation OR first generation OR firstgeneration OR second-generation OR second generation OR secondgeneration OR third-generation OR third generation OR thirdgeneration)",
+lang = "en"
+)
+
+hashtag_query1 <- academictwitteR::build_query(
+"(#refugee OR #refugees OR #asylum-seeker OR #asylum-seekers OR #asylumseeker OR #asylumseekers OR #seekingasylum OR #seekasylum OR #soughtasylum OR #migrant OR #migrants OR #migration OR #immigrant OR #immigrants OR #immigration OR #emigrant OR #emigrants OR #emigration OR #travelban OR #imigrant OR #imigrants OR #imigration OR #close-border OR #close-borders OR #closeborder OR #closeborders OR #restrictborders OR #deportation OR #open-border OR #open-borders OR #openborder OR #openborders OR #cross-channel OR #crosschannel OR #foreignworker OR #foreignworkers OR #foreignvisa OR #foreignvisas OR #workervisa OR #workervisas OR #workerpermit OR #workerpermits OR #first-generation OR #firstgeneration OR #second-generation OR #secondgeneration OR #third-generation OR #thirdgeneration OR #banmigrants OR #banimmigrants OR #banemigrants OR #banimigrants OR #banmigration OR #banimmigration OR #banemigration OR #banimigration OR #deportimmigrants OR #deportmigrants OR #moredeportation)",
+lang = "en"
+)
+
+hashtag_query2 <- academictwitteR::build_query(
+"(#immigrantswelcome OR #imigrantswelcome OR #immigrantwelcome OR #immigrantswelcomehere OR #allimmigrantswelcome OR #allimmigrantwelcome OR #allimigrantswelcome OR #migrantswelcome OR #migrantwelcome OR #migrantswelcomehere OR #allmigrantswelcome OR #allmigrantwelcome OR #refugeeswelcome OR #refugeewelcome OR #refugeeswelcomehere OR #allrefugeeswelcome OR #allrefugeewelcome OR #immigrantsnotwelcome OR #imigrantsnotwelcome OR #immigrantnotwelcome OR #immigrantsarenotwelcome OR #refugeesnotwelcome OR #refugeenotwelcome OR #refugeesarehumanbeings)",
+lang = "en"
+)
+```
+
+************************************************************************************************************
+### Getting the tweets
+
+- Westminster:   2017-03-22 to 2017-03-30 (8 days)
+- Manchester:    2017-05-22 to 2017-05-29 (7 days)
+- London Bridge: 2017-06-03 to 2017-06-10 (7 days)
+- Finsbury Park: 2018-06-18 to 2017-06-26 (7 days)
+- Parsons Green: 2017-09-15 to 2017-09-22 (7 days)
+
+Example query below - each API search varies on the query, start_tweets, end_tweets, file, and data_path, each saved into a different R object to be combined later using the functions above. 
+
+```{r}
+all_tweets_london_1a <- academictwitteR::get_all_tweets(query = hashtag_query2,
+                                                        start_tweets = "2017-06-18T12:00:00Z",
+                                                        end_tweets = "2017-06-18T23:59:59Z",
+                                                        bearer_token,
+                                                        n = 500000,
+                                                        file = "all_tweets_london_1a",
+                                                        data_path = "all_tweets_london_data_1a/",
+                                                        bind_tweets = TRUE,
+                                                        verbose = TRUE)
+```
+
