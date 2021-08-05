@@ -184,6 +184,22 @@ seedword_dict_1c <- dictionary(list(
   negative = c("disgraceful", "#buildthewall","deport", "control", "#travelban", "blood", "thug", "disgusting",
                "illegals", "evil", "problem", "mass", "dumped", "destroyed", "vet", "#closetheborders")
   ))
+
+seedword_dict_1d <- dictionary(list(
+  positive = c("islamaphobia", "love", "together", "racist", "#refugeeswelcome", "tories", "welcome",
+               "empathy", "positive", "benefit", "amazing", "vulnerable"),
+  negative = c("disgraceful", "#buildthewall","deport", "control", "#travelban", "blood", "thug", "disgusting",
+               "illegals", "evil", "problem", "mass", "dumped", "destroyed", "vet", "#closetheborders", "murders")
+  ))
+
+
+seedword_dict_1e <- dictionary(list(
+  positive = c("islamaphobia", "love", "together", "racist", "#refugeeswelcome", "tories", "welcome",
+               "empathy", "positive", "benefit", "amazing", "vulnerable"),
+  negative = c("disgraceful", "#buildthewall","deport", "#travelban", "blood", "thug", 
+               "bad", "nasty", "wrong", "illegals", "illegal", "horrible", "evil", "problem", "mass", "dumped", "destroyed",
+               "extremist", "vet", "#closetheborders", "murders")
+  ))
 ```
 
 ```{r}
@@ -241,7 +257,7 @@ lss_function <- function(corpus, seedword_dict, k_val = 300) {
 
 
 ```{r cache=TRUE}
-lss_alll_output <- lss_function(corpus_alll, seedword_dict_1c, k_val = 300)
+lss_alll_output <- lss_function(corpus_alll, seedword_dict_1e, k_val = 300)
 lss_mod_alll <- lss_alll_output[[1]]
 lss_dfm_alll <- lss_alll_output[[2]]
 ```
@@ -255,7 +271,7 @@ print(textplot_terms(lss_mod_alll, data_dictionary_LSD2015["positive"]))
 print(textplot_terms(lss_mod_alll, data_dictionary_NRC["negative"]))
 print(textplot_terms(lss_mod_alll, data_dictionary_NRC["positive"]))
 
-print(textplot_terms(lss_mod_alll, seedword_dict_1c))
+print(textplot_terms(lss_mod_alll, seedword_dict_1e))
 
 # other visualisations
 # textplot_simil(lss_west, group = FALSE)
@@ -265,8 +281,8 @@ print(textplot_terms(lss_mod_alll, seedword_dict_1c))
 lss_polarity_neg <- textplot_terms(lss_mod_alll, data_dictionary_LSD2015["negative"])
 lss_polarity_pos <- textplot_terms(lss_mod_alll, data_dictionary_LSD2015["positive"])
 
-ggsave(lss_polarity_neg, file = "lss_polarity_neg.png", height = 8, width = 10)
-ggsave(lss_polarity_pos, file = "lss_polarity_pos.png", height = 8, width = 10)
+ggsave(lss_polarity_neg, file = "lss_polarity_neg_1e.png", height = 5, width = 8)
+ggsave(lss_polarity_pos, file = "lss_polarity_pos_1e.png", height = 5, width = 8)
 ```
 
 ```{r cache=TRUE}
@@ -511,7 +527,7 @@ lss_plot_all <- dat_smoothed_plot %>%
 ```
 
 ```{r}
-ggsave(lss_plot_all, file = "lss_plots_all_1c.png", height = 7, width = 10)
+ggsave(lss_plot_all, file = "lss_plots_all_1e.png", height = 7, width = 10)
 ```
 
 ***********************************************************************************************************************
@@ -600,6 +616,8 @@ shift_legend2 <- function(p) {
 }
 
 factor_plot_leg_adj <- shift_legend2(factor_plot)
+```
+```{r}
 
 shift_legend3 <- function(p) {
     pnls <- cowplot::plot_to_gtable(p) %>% gtable::gtable_filter("panel") %>%
@@ -609,8 +627,6 @@ shift_legend3 <- function(p) {
 
     lemon::reposition_legend( p, "center", panel=names(pnls) )
 }
-
-ggsave(file = "file1.png", shift_legend3(factor_plot), height = 7, width = 10)
 ```
 
 ***********************************************************************************************************************
@@ -783,8 +799,9 @@ factor_plot <- ggplot(arrange(plot_df_num, opinion_category),
 ```
 
 ```{r}
-ggsave(file = "file2.png", shift_legend3(factor_plot), height = 7, width = 10)
+ggsave(file = "factor_plot_1e.png", shift_legend3(factor_plot), height = 7, width = 10)
 ```
+
 ```{r}
 plot_df_dens <- plot_df %>% 
   filter(period == "-3-3" | period == "36-42") %>% 
@@ -808,7 +825,7 @@ dist_plot <- plot_df_dens %>%
        x = "Scaled opinion value",
        y = "Frequency") +
   # adjust theme elements
-  theme_minimal() +
+  theme_bw() +
   theme(axis.title.x = element_text(margin = margin(10, 0, 0, 0)),
         axis.title.y = element_text(margin = margin(0, 10, 0, 0)),
         plot.title = element_text(hjust = 0.5),
@@ -817,17 +834,45 @@ dist_plot <- plot_df_dens %>%
 ```
 
 ```{r}
-ggsave(file = "file2.png", shift_legend3(dist_plot), height = 7, width = 10)
+ggsave(file = "dist_plot_1e.png", shift_legend3(dist_plot), height = 7, width = 10)
 ```
 
 ***********************************************************************************************************************
 
-Get table for initial and final distributions
+Get table for initial and final distributions and t-tests
 
 ```{r}
 plot_df_dens %>% 
   group_by(attack, Period) %>% 
   summarise(mean_fit = mean(fit_updated_scaled))
+
+
+t.test(plot_df_dens %>% filter(attack == "Westminster") %>% filter(Period == "Initial") %>%select(fit_updated_scaled),
+       plot_df_dens %>% filter(attack == "Westminster") %>% filter(Period == "Final") %>%select(fit_updated_scaled),
+       alternative = "less")
+
+t.test(plot_df_dens %>% filter(attack == "Manchester Arena") %>% filter(Period == "Initial") %>%select(fit_updated_scaled),
+       plot_df_dens %>% filter(attack == "Manchester Arena") %>% filter(Period == "Final") %>%select(fit_updated_scaled),
+       alternative = "less")
+
+t.test(plot_df_dens %>% filter(attack == "London Bridge") %>% filter(Period == "Initial") %>%select(fit_updated_scaled),
+       plot_df_dens %>% filter(attack == "London Bridge") %>% filter(Period == "Final") %>%select(fit_updated_scaled),
+       alternative = "less")
+
+t.test(plot_df_dens %>% filter(attack == "Finsbury Park") %>% filter(Period == "Initial") %>%select(fit_updated_scaled),
+       plot_df_dens %>% filter(attack == "Finsbury Park") %>% filter(Period == "Final") %>%select(fit_updated_scaled),
+       alternative = "less")
+
+t.test(plot_df_dens %>% filter(attack == "Parsons Green") %>% filter(Period == "Initial") %>%select(fit_updated_scaled),
+       plot_df_dens %>% filter(attack == "Parsons Green") %>% filter(Period == "Final") %>%select(fit_updated_scaled),
+       alternative = "less")
+         
+# t.test(initial, final, alternative = "lsss")
+#   group_by(attack, Period) %>% 
+#   summarise(mean_fit = mean(fit_updated_scaled))
+
+# Percentage of extremists
+# perc_extrmist <- sum(agent_df$extremist)/num_agents
 
 attack_table <- plot_df_dens %>%
   group_by(attack, Period) %>% 
@@ -843,7 +888,36 @@ attack_table <- plot_df_dens %>%
 
 attack_table[, -c(1:2)] <- round(attack_table[, -c(1:2)], 3)
 
-write.csv(attack_table,'attack_table.csv')
+# write.csv(attack_table,'attack_table.csv')
+write.csv(attack_table,'attack_table_1e.csv')
+```
+
+
+```{r}
+# get extremists
+extreme_table <- plot_df_dens %>% 
+  mutate(init_extremist = ifelse(Period == "Initial" & fit_updated_scaled <= -0.75, TRUE, FALSE)) %>% 
+  mutate(final_extremist = ifelse(Period == "Final" & fit_updated_scaled <= -0.75, TRUE, FALSE)) 
+
+extreme_table <- ungroup(extreme_table)
+
+init_extreme <- extreme_table %>% 
+  group_by(attack) %>% 
+  summarise(perc_init_extreme = sum(init_extremist) / n()) %>% 
+  ungroup()
+
+final_extreme <- extreme_table %>% 
+  group_by(attack) %>% 
+  summarise(perc_final_extreme = sum(final_extremist) / n()) %>% 
+  ungroup()
+
+
+init_extreme[, -c(1)] <- round(init_extreme[, -c(1)], 5)
+final_extreme[, -c(1)] <- round(final_extreme[, -c(1)], 5)
+
+
+init_extreme$perc_init_extreme * 100
+final_extreme$perc_final_extreme * 100
 ```
 
 ************************************************************************************************************************
@@ -855,7 +929,7 @@ Save initial distribution for initialisation of model
 plot_df_dens_initial <- plot_df_dens %>% 
   filter(Period == "Initial") 
 
-# saveRDS(plot_df_dens_initial, "initial_opinions.RDS")
+saveRDS(plot_df_dens_initial, "initial_opinions_1e.RDS")
 ```
 
 ************************************************************************************************************************

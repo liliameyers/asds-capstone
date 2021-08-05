@@ -1,0 +1,910 @@
+---
+title: "Agent Based Model"
+author: "Candidate 13343"
+date: "7/30/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Load objects and libraries
+
+```{r}
+suppressMessages(library(stats))
+suppressMessages(library(igraph))
+suppressMessages(library(ggplot2))
+```
+
+```{r}
+# read in the data frame of initial opinions from the LSS model 
+initial_opinions <- readRDS("initial_opinions_1e.RDS")
+
+# get vector of opinions for each attack 
+dens_vec_west <- subset(initial_opinions, attack == "Westminster")$fit_updated_scaled
+dens_vec_manc <- subset(initial_opinions, attack == "Manchester Arena")$fit_updated_scaled
+dens_vec_lond <- subset(initial_opinions, attack == "London Bridge")$fit_updated_scaled
+dens_vec_fins <- subset(initial_opinions, attack == "Finsbury Park")$fit_updated_scaled
+dens_vec_pars <- subset(initial_opinions, attack == "Parsons Green")$fit_updated_scaled
+
+# estimate density function for each distribution
+dens_west <- density(dens_vec_west)
+dens_manc <- density(dens_vec_manc)
+dens_lond <- density(dens_vec_lond)
+dens_fins <- density(dens_vec_fins)
+dens_pars <- density(dens_vec_pars)
+```
+
+```{r}
+hist(dens_vec_west)
+hist(dens_vec_manc)
+hist(dens_vec_lond)
+hist(dens_vec_fins)
+hist(dens_vec_pars)
+```
+
+
+************************************************************************************************************************
+
+##### Set initial parameters
+
+Function to create the network graph 
+
+```{r}
+make_network <- function(num_agents, type = "small world") {
+  
+  if (type == "small world") {
+    g <- sample_smallworld(1, num_agents, 10, 0.05)
+  
+  }
+  
+  if (type == "scale free") {
+    
+    g <- barabasi.game(num_agents, power = 1.2, m = NULL, out.dist = NULL, out.seq = NULL,
+                       out.pref = FALSE, zero.appeal = 1, directed = FALSE,
+                      algorithm ="psumtree", start.graph = NULL)
+  }
+  
+  return(g)
+}
+```
+
+```{r}
+set.seed(123)
+# network = setup_network(nx.watts_strogatz_graph, n, k=round(0.78*n), p=0.2)
+g <- make_network(num_agents, type = "small world")
+# g <- watts.strogatz.game(1, 1000, 20, 0.35, loops = FALSE, multiple = FALSE)
+plot(g, vertex.label= NA,vertex.size = 0.6, xlab = "Small world model")
+```
+
+Function to draw initial opinions for ABM based on results of LSS
+
+```{r}
+# get initial opinions- outside of function for reproducibility 
+set.seed(123)
+
+get_initial_opinions <- function(num_agents, attack_density, uniform_dist = FALSE) {
+
+  if (uniform_dist == TRUE) {
+    initial_opinions <- runif(num_agents, -1, 1) 
+  } else {
+    # from: https://stackoverflow.com/questions/17087312/generate-a-random-
+    # number-from-a-density-object-or-more-broadly-from-a-set-of-nu
+    initial_opinions <- sample(x = attack_density$x,
+                               num_agents, 
+                               prob = attack_density$y,
+                               replace = TRUE) + rnorm(num_agents, 0, attack_density$bw)
+  }
+  
+  return(initial_opinions)
+}
+
+initial_opinions_west <- get_initial_opinions(500, dens_west)
+initial_opinions_manc <- get_initial_opinions(500, dens_manc)
+initial_opinions_lond <- get_initial_opinions(500, dens_lond)
+initial_opinions_fins <- get_initial_opinions(500, dens_fins)
+initial_opinions_pars <- get_initial_opinions(500, dens_pars)
+initial_opinions_unif <- runif(500, -1, 1)
+```
+
+Function to run the ABM model 
+
+```{r}
+# Function to run abm model
+# Parameters: network graph - either small world or scale free
+# Initial distribution of opinions - exploring 6 for each of the attacks + uniform distibution
+# extremist threshold = -0.75 to align with LSS output 
+# epsilon value - ranges from 0.1 to 0.9
+run_abm <- function(network_graph, initial_opinions, num_iterations, extremist_threshold = -0.75, epsilon_val, verbose = FALSE) {
+
+  # Number of agents in simulation
+  num_agents <- vcount(network_graph)
+  
+  # Number of time steps to run 
+  num_iterations <- num_iterations 
+  
+  # Threshold for which opinion is considered
+  # "extremist", i.e., very anti-immigrant
+  extremist_threshold <- extremist_threshold
+  
+  # Create data frame where each row is an agent, stores: 
+  # - Current opinion [-1, 1]
+  # - Epsilon (confidence bound for changing opinion)
+  # - Extremist indicator (Boolean to indicate whether they are considered extremist)
+  # - List of neighbors
+  agent_df <- data.frame(
+    agent_id = c(1:num_agents),
+    initial_opinion = rep(NA, num_agents),
+    current_opinion = rep(NA, num_agents), 
+    epsilon = rep(NA, num_agents),
+    extremist = rep(NA, num_agents),
+    neighbors = rep(NA, num_agents)
+    )
+  
+  # Create matrix where each row is an agent, each column a past opinion
+  # (Easier to make separate from data frame)
+  opinions_matrix <- matrix(
+    NA,
+    nrow = num_agents,
+    ncol =  (num_iterations + 1))
+  
+  # Set initial value for past opinions, initial opinions, 
+  # and current opinions
+  agent_df$initial_opinion <- initial_opinions
+  agent_df$current_opinion <- initial_opinions
+  opinions_matrix[, 1] <- initial_opinions
+    
+  # Set initial extremist values based on current opinion
+  agent_df$extremist <- ifelse(agent_df$current_opinion <= extremist_threshold, TRUE, FALSE)
+  
+  # Set epsilon values - 0.1 if extremist, otherwise epsilon
+  agent_df$epsilon <- ifelse(agent_df$extremist == TRUE, 0.25, epsilon_val)
+  
+  # Initialise empty vector of neighbors 
+  neighbors_list <- vector("list", num_agents)
+  
+  for (i in 1:nrow(agent_df)) {
+    agent_neighbors <- as.list(neighbors(network_graph, i))
+    neighbors_list[[i]] <- agent_neighbors
+    }
+  
+  # Assign neighbors 
+  agent_df$neighbors <- neighbors_list
+  
+  # Iterate over each time step
+  for (i in 1:num_iterations){
+  
+    if (verbose == TRUE) {
+      print(paste("Time step:", i))
+    }
+    
+    # Select random indices of agents to update their opinion 
+    # Starting with all of them each time
+    agents_to_udpate <- sample(nrow(agent_df), floor(nrow(agent_df) / 3))
+    
+    # For each agent to update 
+    for(j in 1:length(agents_to_udpate)) {
+      
+      # Get Agent A
+      agent_a <- agents_to_udpate[j]
+      opinion_agent_a <- agent_df$current_opinion[agent_a]
+
+      # Select random neighbor to meet with - Agent B
+      agent_b <- sample(agent_df$neighbors[agent_a][[1]], 1)[[1]]
+      opinion_agent_b <- agent_df$current_opinion[agent_b]
+      
+      # If difference of opinions is less than epsilon
+      if (abs(opinion_agent_a - opinion_agent_b) < agent_df$epsilon[agent_a]) {
+        
+        # Four scenarios: 
+        # 1) A extremist, B extremist and more extreme than agent a
+        # change opinion to B 
+        if (agent_df$extremist[agent_a] == TRUE & (opinion_agent_b < opinion_agent_a)) {
+          agent_df$current_opinion[agent_a] <- opinion_agent_b
+        } 
+        
+        # 2) A extreme, B extreme but less than agent a
+        # opinion remains the same
+        if (agent_df$extremist[agent_a] == TRUE & (opinion_agent_b > opinion_agent_a)) {
+          agent_df$current_opinion[agent_a] <- opinion_agent_a
+        }
+        
+        # 3) A NOT extreme, B is extreme
+        # pull closer to their opinion (Persuasive Arguments Theory and Social Comparison Theory)
+        if (agent_df$extremist[agent_a] == FALSE & agent_df$extremist[agent_b] == TRUE) {
+          agent_df$current_opinion[agent_a] <- 
+            opinion_agent_a + (0.5 * (opinion_agent_b - opinion_agent_a)) + runif(1, -0.5, -0.1)
+        }
+        
+        # 4) A is NOT extreme, B NOT extreme, opinions converge at rate mu = 0.5
+        if (agent_df$extremist[agent_a] == FALSE & agent_df$extremist[agent_b] == FALSE) {
+          agent_df$current_opinion[agent_a] <- opinion_agent_a + (0.5 * (opinion_agent_b - opinion_agent_a))
+        }
+        
+      }
+      
+      # Update agent if it is now past extremist threshold  
+      if (agent_df$current_opinion[agent_a] <= extremist_threshold) {
+        agent_df$extremist[agent_a] <- TRUE
+        agent_df$epsilon[agent_a] <- 0.1
+      }
+      
+    }
+    
+    # Normalisation function 
+    agent_df$current_opinion <- ifelse(agent_df$current_opinion > 1, 1, agent_df$current_opinion)
+    agent_df$current_opinion <- ifelse(agent_df$current_opinion < -1, -1, agent_df$current_opinion)
+    
+    # update opinions matrix
+    opinions_matrix[, (i + 1)] <-  agent_df$current_opinion
+  }
+  
+  # return final opinions matrix and data frame 
+  return(list(agent_df, opinions_matrix))
+}
+```
+
+************************************************************************************************************************
+# Run models for Each Attack 
+- Each attack differs in the initial distribution of opinions 
+- We are seeing how epsilon impacts the outcome (possibly the network as well, but starting with small world)
+
+```{r}
+num_agents <- 500
+epsilon_vals <- seq(0.1, 0.9, 0.1)
+```
+
+```{r cache=TRUE}
+# separating because of the size of the output
+# list to store 10 runs of each simulation
+opinions_df_all_iter <- data.frame()
+
+for (i in 1:5) {
+
+  opinions_df_one_iter <- list() 
+  
+  for (j in 1:length(epsilon_vals)) {
+    
+    abm_output <- run_abm(network_graph = g,
+                          initial_opinions = initial_opinions_unif,
+                          num_iterations = 2500,
+                          epsilon_val = epsilon_vals[j])
+  
+    opinions_matrix <- abm_output[[2]]
+    
+    opinions_df <- as.data.frame(opinions_matrix) %>% 
+      mutate(agent = c(1:nrow(opinions_matrix))) %>% 
+      # Make agent first column
+      relocate(agent, .before = V1) %>% 
+      # add epsilon value
+      mutate(epsilon_value = epsilon_vals[[j]]) %>% 
+      relocate(epsilon_value, .before = V1) 
+
+
+    # join to the iteration data frame 
+    print(paste("adding to itation df", j))
+    opinions_df_one_iter <- rbind(opinions_df_one_iter, opinions_df)
+    
+  }
+  
+  # add iteration column
+  opinions_df_one_iter <- opinions_df_one_iter %>%
+    mutate(iteration = i) %>% 
+    relocate(iteration, .before = V1) 
+  
+  # join to the overall data frame 
+  print(paste("adding to total df ", i))
+  opinions_df_all_iter <- rbind(opinions_df_all_iter, opinions_df_one_iter)
+}
+```
+
+```{r}
+# opinions_df_all_iter_west <- opinions_df_all_iter
+# saveRDS(opinions_df_all_iter_west, "opinions_df_all_iter_west.RDS")
+# 
+# opinions_df_all_iter_manc <- opinions_df_all_iter
+# saveRDS(opinions_df_all_iter_manc, "opinions_df_all_iter_manc.RDS")
+
+opinions_df_all_iter_lond <- opinions_df_all_iter
+saveRDS(opinions_df_all_iter_lond, "opinions_df_all_iter_lond.RDS")
+
+# 5 iterations
+opinions_df_all_iter_fins <- opinions_df_all_iter
+saveRDS(opinions_df_all_iter_fins, "opinions_df_all_iter_fins.RDS")
+
+opinions_df_all_iter_pars <- opinions_df_all_iter
+saveRDS(opinions_df_all_iter_pars, "opinions_df_all_iter_pars.RDS")
+
+opinions_df_all_iter_unif <- opinions_df_all_iter
+saveRDS(opinions_df_all_iter_unif, "opinions_df_all_iter_unif.RDS")
+```
+
+************************************************************************************************************************
+
+```{r}
+# replace with attack name here
+opinions_df <- opinions_df_all_iter_unif %>% 
+  select(agent, epsilon_value, V1, V2501) %>% 
+  group_by(agent, epsilon_value) %>% 
+  summarise(across(everything(), list(mean)))
+
+# add attack name here
+opinions_df <- opinions_df %>% 
+  mutate(attack = "Uniform initial opinions") %>% 
+  relocate(attack, .before = agent)
+
+# rename timesteps (num iteration + 1)
+colnames(opinions_df)[4:5] <- c("initial_opinion", "final_opinion")
+
+# save opinion df 
+# saveRDS(opinions_df, "opinions_df_unif.RDS")
+```
+
+************************************************************************************************************************
+#### Visualisations
+
+##### Make agent trajectory graph - Include min and max epsilon for uniform distribution
+
+Carry out 1 run of the model 
+
+```{r}
+abm_list_eps <- list()
+
+for (j in 1:length(epsilon_vals)) {
+  abm_output <- run_abm(network_graph = g,
+                        initial_opinions = initial_opinions_unif,
+                        num_iterations = 2500,
+                        epsilon_val = epsilon_vals[j])
+  
+  abm_list_eps[[j]] <- abm_output
+}
+
+unif_eps1_output <- abm_list_eps[[1]]
+unif_eps9_output <- abm_list_eps[[9]]
+
+agent_df_unif_eps1 <- unif_eps1_output[[1]]
+opinions_matrix_unif_eps1 <- unif_eps1_output[[2]]
+
+agent_df_unif_eps9 <- unif_eps9_output[[1]]
+opinions_matrix_unif_eps9 <- unif_eps9_output[[2]]
+```
+
+```{r}
+plot_trajectories <- function(agent_df, opinions_matrix, timestep_cutoff) {
+  
+  # iterations = number of timesteps 
+  # num rounds = iterations + 1 (round 1 is timestep 0)
+  num_agents <- nrow(opinions_matrix)
+  num_rounds <- ncol(opinions_matrix)
+  
+  # Make opinions data frame for graphing
+  opinion_df <- as.data.frame(opinions_matrix) %>% 
+    mutate(agent = c(1:num_agents)) %>% 
+    # Make agent first column
+    relocate(agent, .before = V1)
+  
+  # Pivot df longer
+  opinion_df_long <- opinion_df %>% 
+    pivot_longer(cols = colnames(opinion_df)[2:length(colnames(opinion_df))],
+                 names_to = "round", values_to = "opinion")
+  
+  opinion_df_long$round <- as.numeric(gsub("V", "", opinion_df_long$round))
+  
+  changed_agents <- (opinions_matrix[, 1] != opinions_matrix[, num_rounds])
+  
+  # Percentage of changed agents
+  perc_changed <- sum(changed_agents)/num_agents
+  
+  # Percentage of extremists
+  perc_extrmist <- sum(agent_df$extremist)/num_agents
+  
+  # discretize opinion space into 0.01 size bins and count 
+  # the number of clusters (max 200 min 1)
+  final_opinions <- round(opinion_df[, num_rounds], 2)
+  num_clusters <- length(unique(final_opinions))
+  
+  # make plotting data frame for cutoff
+  plot_df <- opinion_df_long %>% 
+    filter(round <= timestep_cutoff)
+  
+  trajectory_plot <- plot_df %>% 
+    ggplot(aes(x = round, 
+               y = opinion, 
+               group = agent)) + 
+    # Create line of opinion over time
+    geom_line(aes(colour = agent)) + 
+    # adjust labels
+    labs(title = "Agent opinion trajectories over time",
+         subtitle = "ABM model of simiarity bias",
+         caption = print(paste("Percent changed: ", round(perc_changed, 3),
+                               "Percent extremist: ", round(perc_extrmist, 3),
+                               "Number of clusters: ", num_clusters)),
+         x = "Time Step",
+         y = "Scaled opinion [-1, 1] ") +
+    # adjust theme elements
+    theme_bw() +
+    theme(axis.title.x = element_text(margin = margin(10, 0, 0, 0)),
+          axis.title.y = element_text(margin = margin(0, 10, 0, 0)),
+          plot.title = element_text(hjust = 0.5),
+          plot.subtitle = element_text(hjust = 0.5),
+          legend.position = "none",
+          plot.margin = unit(c(0.25, 0.5, 0.25, 0.5), "cm"))
+  
+  return(trajectory_plot)
+}
+```
+
+```{r}
+plot_unif_eps1 <- plot_trajectories(agent_df_unif_eps1, opinions_matrix_unif_eps1, 750)
+plot_unif_eps9 <- plot_trajectories(agent_df_unif_eps9, opinions_matrix_unif_eps9, 750)
+
+ggsave(plot_unif_eps1, file = "plot_unif_eps1.png", width = 6, height = 8)
+ggsave(plot_unif_eps9, file = "plot_unif_eps9.png", width = 6, height = 8)
+```
+
+************************************************************************************************************************
+
+Plot opinion shifts based on epsilon values, for each of the 5 attacks. 
+
+************************************************************************************************************************
+
+```{r}
+# inspect initial spread 
+test_west <- opinions_df_west %>% 
+  ungroup() %>% 
+  filter(epsilon_value == 0.4)
+
+hist(dens_vec_west)
+hist(test_west$`1`)
+```
+
+
+```{r}
+# bind all attacks together 
+opinions_df_all <- rbind(opinions_df_west, 
+                         opinions_df_manc,
+                         opinions_df_lond,
+                         opinions_df_fins,
+                         opinions_df_pars, 
+                         opinions_df_unif)
+
+saveRDS(opinions_df_all, "opinions_df_all.RDS")
+```
+
+```{r}
+# create plot data frame
+opinion_shift_plot_df <- opinions_df_all 
+
+# add opinion shift 
+opinion_shift_plot_df <- opinion_shift_plot_df %>% 
+  mutate(opinion_shift = final_opinion - initial_opinion)
+
+# factorize variables for ordering 
+opinion_shift_plot_df$epsilon_value <- as.factor(opinion_shift_plot_df$epsilon_value)
+
+opinion_shift_plot_df <- transform(opinion_shift_plot_df,
+                            attack = factor(attack, 
+                                            levels = c("Westminster", "Manchester Arena", "London Bridge",
+                                                       "Finsbury Park", "Parsons Green", "Uniform initial distribution")))
+
+opinion_shift_plot <- opinion_shift_plot_df %>% 
+    ggplot() + 
+    geom_boxplot(aes(x = epsilon_value, y = opinion_shift)) + 
+    # adjust labels
+    labs(title = "Opinion shift for each epsilon value",
+         x = "Epsilon value",
+         y = "Opinion shift (final - initial opinion)") +
+    # adjust theme elements
+    theme_bw() +
+    theme(axis.title.x = element_text(size = 12, margin = margin(10, 0, 0, 0), face = "bold"),
+          axis.title.y = element_text(size = 12, margin = margin(0, 10, 0, 0), face = "bold"),
+          plot.title = element_text(size = 18, hjust = 0.5),
+          axis.text = element_text(size = 10, hjust = 0.5),
+          plot.margin = unit(c(0.25, 0.5, 0.25, 0.5), "cm")) +
+  facet_wrap(~ attack, nrow = 3, ncol = 2) +
+        theme(strip.text.x = element_text(size = 12))
+
+
+ggsave(opinion_shift_plot, file = "opinion_shift_plot_nofreescales.png", height = 11, width = 9)
+```
+
+************************************************************************************************************************
+
+Create table looking at changes from initial to final distribution 
+
+************************************************************************************************************************
+
+```{r}
+abm_table <- opinions_df_all %>% 
+  select(attack, agent, epsilon_value, "1", "2501") 
+
+colnames(abm_table)[4:5] <- c("initial_opinion", "final_opinion")
+
+abm_table <- abm_table %>% 
+  mutate(opinion_shift = final_opinion - initial_opinion)
+
+# get extremists
+extreme_table <- abm_table %>% 
+  mutate(init_extremist = ifelse(initial_opinion <= -0.75, TRUE, FALSE)) %>% 
+  mutate(final_extremist = ifelse(final_opinion <= -0.75, TRUE, FALSE))
+
+extreme_table <- ungroup(extreme_table)
+
+init_extreme <- extreme_table %>% 
+  group_by(attack, epsilon_value) %>% 
+  summarise(perc_init_extreme = sum(init_extremist) / n()) %>% 
+  ungroup()
+
+final_extreme <- extreme_table %>% 
+  group_by(attack, epsilon_value) %>% 
+  summarise(perc_final_extreme = sum(final_extremist) / n()) %>% 
+  ungroup()
+
+# get number of clusters
+  summarise(across(everything(), list(mean)))
+
+abm_table <- ungroup(abm_table)
+
+abm_table_final <- abm_table %>% 
+  group_by(attack, epsilon_value) %>% 
+  summarise(across(everything(), list(mean)))  
+
+abm_table_final <- abm_table_final[,-3]
+
+abm_table_final[, -c(1:2)] <- round(abm_table_final[, -c(1:2)], 4)
+
+# add in extrmist 
+abm_table_final <- abm_table_final %>% 
+  left_join(init_extreme, by = c("attack", "epsilon_value")) %>% 
+  left_join(final_extreme, by = c("attack", "epsilon_value")) 
+
+abm_table_paper <- abm_table_final %>% 
+  filter(epsilon_value %in% c(0.1, 0.5, 0.9)) 
+
+write.csv(abm_table_paper,'abm_table_paper.csv')
+```
+
+************************************************************************************************************************
+
+Final opinion as a function of initial opinion for epsilon 0.9
+
+************************************************************************************************************************
+
+```{r}
+# select first and final round values 
+final_func_plot_df <- opinions_df_all %>% 
+  ungroup() %>% 
+  select(attack, agent, epsilon_value, "1", "2501")  %>% 
+  filter(epsilon_value == 0.9)
+
+colnames(final_func_plot_df)[4:5] <- c("initial_opinion", "final_opinion")
+
+final_func_plot_df <- final_func_plot_df %>% 
+  mutate(became_extremist = ifelse(initial_opinion > -0.75 & 
+                                     final_opinion <= -0.75, TRUE, FALSE))
+
+# factorize variables for ordering 
+final_func_plot_df$epsilon_value <- as.factor(final_func_plot_df$epsilon_value)
+
+final_func_plot_df <- transform(final_func_plot_df,
+                            attack = factor(attack, 
+                                            levels = c("Westminster", "Manchester Arena", "London Bridge",
+                                                       "Finsbury Park", "Parsons Green", "Uniform initial distribution")))
+  
+final_func_plot <- final_func_plot_df %>% 
+  ggplot(aes(x = initial_opinion,
+             y = final_opinion)) +
+  geom_point(aes(colour = became_extremist)) + 
+  # adjust labels
+  labs(title = "Final opinion as a function of initial opinion with confidence bounds of 0.9",
+       x = "Initial Opinion",
+       y = "Final Opinion") +
+    scale_colour_manual(values = c("TRUE" = "red",
+                               "FALSE" = "black")) + 
+    # adjust theme elements
+    theme_bw() +
+    theme(axis.title.x = element_text(size = 12, margin = margin(10, 0, 0, 0), face = "bold"),
+          axis.title.y = element_text(size = 12, margin = margin(0, 10, 0, 0), face = "bold"),
+          plot.title = element_text(size = 18, hjust = 0.5),
+          legend.position = "bottom",
+          axis.text = element_text(size = 10, hjust = 0.5),
+          plot.margin = unit(c(0.25, 0.5, 0.25, 0.5), "cm")) +
+  guides(fill = guide_legend(title = "Agent became extremist")) +
+  facet_wrap(~ attack, scales = "free_y", nrow = 2, ncol = 3) 
+        # theme(strip.text.x = element_text(size = 12))
+
+ggsave(final_func_plot, file = "final_func_plot.png", height = 8, width = 12.5)
+```
+
+************************************************************************************************************************
+
+extra code 
+
+************************************************************************************************************************
+
+************************************************************************************************************************
+
+Selected plot of final distributions of opinions
+
+************************************************************************************************************************
+```{r}
+
+# select first and final round values 
+final_dist_plot_df <- opinions_df_all %>% 
+  ungroup() %>% 
+  select(attack, agent, epsilon_value, "2501")  %>% 
+  filter(epsilon_value %in% c(0.5, 0.9))
+
+colnames(final_dist_plot_df)[4] <-"final_opinion"
+
+# get means of final opinions
+final_dist_plot_mean_df <- final_dist_plot_df %>% 
+  group_by(attack, epsilon_value) %>% 
+  summarise(mean_final_opinion = mean(final_opinion)) 
+
+# factorize variables for ordering 
+final_dist_plot_df$epsilon_value <- as.factor(final_dist_plot_df$epsilon_value)
+
+final_dist_plot_df <- transform(final_dist_plot_df,
+                            attack = factor(attack, 
+                                            levels = c("Westminster", "Manchester Arena", "London Bridge",
+                                                       "Finsbury Park", "Parsons Green", "Uniform initial distribution")))
+
+
+final_dist_plot_mean_df$epsilon_value <- as.factor(final_dist_plot_mean_df$epsilon_value)
+
+final_dist_plot_mean_df <- transform(final_dist_plot_mean_df,
+                            attack = factor(attack, 
+                                            levels = c("Westminster", "Manchester Arena", "London Bridge",
+                                                       "Finsbury Park", "Parsons Green", "Uniform initial distribution")))
+
+final_dist_plot <- final_dist_plot_df %>% 
+  ggplot(aes(x = final_opinion, 
+             colour = epsilon_value)) + 
+    geom_histogram() +
+    geom_vline(data = final_dist_plot_mean_df,
+               aes(xintercept = mean_final_opinion,
+                   colour = epsilon_value),
+               linetype = "dashed") +
+    # adjust labels
+    labs(title = "Density distribution of initial and final opinions",
+         x = "Scaled opinion value",
+         y = "Frequency") +
+    # adjust theme elements
+    theme_bw() +
+  theme(axis.title.x = element_text(margin = margin(10, 0, 0, 0)),
+          axis.title.y = element_text(margin = margin(0, 10, 0, 0)),
+        legend.position = "bottom",
+          plot.title = element_text(hjust = 0.5),
+          plot.margin = unit(c(0.25, 0.5, 0.25, 0.5), "cm")) +
+  facet_wrap(~ attack, scale = "free_y", nrow = 3, ncol = 3)
+    
+ggsave(final_dist_plot, file = "final_dist_plot.png", height = 12, width = 9)
+```
+
+##### Mean and median opinions over time
+
+```{r}
+plot_mean_median <- function(agent_df, opinions_matrix) {
+  
+  # iterations = number of timesteps 
+  # num rounds = iterations + 1 (round 1 is timestep 0)
+  num_agents <- nrow(opinions_matrix)
+  num_rounds <- ncol(opinions_matrix)
+  
+  opinion_df <- data.frame(t(opinions_matrix))
+  
+  timestep_mean <- rowMeans(opinion_df)
+  timestep_median <- rowMedians(as.matrix(opinion_df))
+  
+  opinion_df$timestep_mean <- timestep_mean
+  opinion_df$timestep_median <- timestep_median
+  
+  opinion_df <- opinion_df %>% 
+    mutate(timestep = c(1:nrow(opinion_df)))
+  
+  mean_median_plot <- opinion_df %>% 
+    ggplot(aes(x = timestep,
+               y = timestep_mean)) +
+    geom_line(colour = "blue") +
+    geom_line(aes(x = timestep,
+                  y = timestep_median)) +
+    geom_hline(yintercept = 0,
+               alpha = 0.4) +
+    # adjust labels
+    labs(title = "Median and mean opinion over time",
+         x = "Time step",
+         y = "Opinion Scale") +
+    # adjust theme elements
+    theme_minimal() +
+    theme(axis.title.x = element_text(margin = margin(10, 0, 0, 0)),
+          axis.title.y = element_text(margin = margin(0, 10, 0, 0)),
+          legend.position = "none",
+          plot.margin = unit(c(0.25, 0.5, 0.25, 0.5), "cm"))
+    
+  return(mean_median_plot)
+}
+```
+
+```{r}
+plot_dist_ind <- function(agent_df, opinions_matrix){
+
+  num_agents <- nrow(opinions_matrix)
+  num_rounds <- ncol(opinions_matrix)
+  
+  # Make opinions data frame for graphing
+  opinion_df <- as.data.frame(opinions_matrix) %>% 
+    mutate(agent = c(1:num_agents)) %>% 
+    # Make agent first column
+    relocate(agent, .before = V1)
+  
+  # Pivot df longer
+  opinion_df_long <- opinion_df %>% 
+    pivot_longer(cols = colnames(opinion_df)[2:length(colnames(opinion_df))],
+                 names_to = "round", values_to = "opinion")
+    
+  opinion_df_long$round <- as.numeric(gsub("V", "", opinion_df_long$round))
+  
+  plot_df <- opinion_df_long %>% 
+    filter(round == 1 | round == num_rounds) %>% 
+    mutate(distribution = ifelse(round == 1, "initial", "final"))
+  
+  plot_dens_means <- plot_df %>% 
+    group_by(distribution) %>% 
+    summarise(mean_opinion = mean(opinion))
+  
+  
+  dist_plot <- plot_df %>% 
+    ggplot(aes(x = opinion, 
+               fill = distribution)) + 
+    geom_density(alpha = 0.3) +
+    geom_vline(data = plot_dens_means, 
+               aes(xintercept = mean_opinion,
+                   colour = distribution),
+               linetype = "dashed") + 
+    # adjust labels
+    labs(title = "Density distribution of initial and final opinions",
+         x = "Scaled opinion value",
+         y = "Frequency") +
+    # adjust theme elements
+    theme_minimal() +
+    theme(axis.title.x = element_text(margin = margin(10, 0, 0, 0)),
+          axis.title.y = element_text(margin = margin(0, 10, 0, 0)),
+          plot.title = element_text(hjust = 0.5),
+          plot.margin = unit(c(0.25, 0.5, 0.25, 0.5), "cm"))
+    # facet_wrap(~ attack, scale = "free_y", nrow = 2, ncol = 3)
+    
+  return(dist_plot)
+}
+
+```
+
+```{r}
+plot_dist_all_eps <- function(abm_list) {
+  
+  plot_df_all_eps <- data.frame()
+  plot_dens_means_all_eps <- data.frame()
+  
+  for (i in 1:length(abm_list)) {
+    
+    abm <- abm_list[[i]]
+    agent_df <- abm[[1]]
+    opinions_matrix <- abm[[2]]
+    
+    # iterations = number of timesteps 
+    # num rounds = iterations + 1 (round 1 is timestep 0)
+    num_agents <- nrow(opinions_matrix)
+    num_rounds <- ncol(opinions_matrix)
+    
+    # Make opinions data frame for graphing
+    opinion_df <- as.data.frame(opinions_matrix) %>% 
+      mutate(agent = c(1:num_agents)) %>% 
+      # Make agent first column
+      relocate(agent, .before = V1)
+    
+    # Pivot df longer
+    opinion_df_long <- opinion_df %>% 
+      pivot_longer(cols = colnames(opinion_df)[2:length(colnames(opinion_df))],
+                   names_to = "round", values_to = "opinion")
+      
+    opinion_df_long$round <- as.numeric(gsub("V", "", opinion_df_long$round))
+    
+    plot_df <- opinion_df_long %>% 
+      filter(round == 1 | round == num_rounds) %>% 
+      mutate(distribution = ifelse(round == 1, "initial", "final")) %>% 
+      mutate(epsilon_val = epsilon_vals[[i]])
+
+    plot_dens_means <- plot_df %>% 
+      group_by(distribution) %>% 
+      summarise(mean_opinion = mean(opinion)) %>% 
+      mutate(epsilon_val = epsilon_vals[[i]])
+
+    
+    plot_df_all_eps <- rbind(plot_df_all_eps, plot_df)
+    plot_dens_means_all_eps <- rbind(plot_dens_means_all_eps, plot_dens_means)
+  }
+  
+  plot_df_all_eps$epsilon_val <- as.factor(plot_df_all_eps$epsilon_val)
+  plot_dens_means_all_eps$epsilon_val <- as.factor(plot_dens_means_all_eps$epsilon_val)
+  
+  
+  dist_plot <- plot_df_all_eps %>% 
+    ggplot(aes(x = opinion, 
+               fill = distribution)) + 
+    geom_density(alpha = 0.3) +
+    geom_vline(data = plot_dens_means_all_eps, 
+               aes(xintercept = mean_opinion,
+                   colour = distribution),
+               linetype = "dashed") + 
+    # adjust labels
+    labs(title = "Density distribution of initial and final opinions",
+         x = "Scaled opinion value",
+         y = "Frequency") +
+    # adjust theme elements
+    theme_minimal() +
+    theme(axis.title.x = element_text(margin = margin(10, 0, 0, 0)),
+          axis.title.y = element_text(margin = margin(0, 10, 0, 0)),
+          plot.title = element_text(hjust = 0.5),
+          plot.margin = unit(c(0.25, 0.5, 0.25, 0.5), "cm")) +
+  facet_wrap(~ epsilon_val, scale = "free_y", nrow = 3, ncol = 3)
+    
+  return(dist_plot)
+}
+```
+
+```{r}
+plot_factors <- function(agent_df, opinions_matrix) {
+
+  num_agents <- nrow(opinions_matrix)
+  num_rounds <- ncol(opinions_matrix)
+  
+  # Make opinions data frame for graphing
+  opinion_df <- as.data.frame(opinions_matrix) %>% 
+    mutate(agent = c(1:num_agents)) %>% 
+    # Make agent first column
+    relocate(agent, .before = V1)
+  
+  # Pivot df longer
+  opinion_df_long <- opinion_df %>% 
+    pivot_longer(cols = colnames(opinion_df)[2:length(colnames(opinion_df))],
+                 names_to = "round", values_to = "opinion")
+    
+  opinion_df_long$round <- as.numeric(gsub("V", "", opinion_df_long$round))
+  
+  opinion_df_long <- opinion_df_long %>% 
+    mutate(extremity_factor = ifelse(opinion < 0,
+                                     ifelse(opinion < -0.25, 
+                                            ifelse(opinion < -0.75, "strongly_negative", "negative"),
+                                            "slightly_negative"),
+                                     ifelse(opinion > 0.25,
+                                            ifelse(opinion > 0.75, "strongly_positive", "positive"),
+                                            "slightly_positive")))
+  
+  plot_df <- opinion_df_long %>% 
+    filter(round == 1 | round == num_rounds) 
+  
+  plot_df$round <- as.factor(plot_df$round)
+  plot_df$extremity_factor <- factor(plot_df$extremity_factor,
+                                     levels = c("strongly_positive", "positive", "slightly_positive",
+                                                "slightly_negative", "negative", "strongly_negative"))
+  plot_df_num <- plot_df %>% 
+    group_by(round, extremity_factor) %>% 
+    summarise(n = n()) %>% 
+    mutate(freq = n / sum(n))
+  
+  factor_plot <- ggplot(arrange(plot_df_num, extremity_factor),
+                        aes(x = round, 
+                            y = freq,
+                            fill = extremity_factor)) +
+    geom_bar(stat = "identity") +
+    scale_fill_manual(values = c("strongly_positive" = "dodgerblue4",
+                                 "positive" = "dodgerblue1",
+                                 "slightly_positive" = "skyblue1",
+                                 "slightly_negative" = "lightcoral",
+                                 "negative" = "indianred",
+                                 "strongly_negative" = "firebrick4"))
+  
+  return(factor_plot)
+}
+```
