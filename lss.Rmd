@@ -57,36 +57,10 @@ Timeframe of attack data:
 - 2017-09-15 07:20 + 48 hours
 
 ```{r cache=TRUE}
-attack_tweets_west_final <- readRDS("attack_tweets_west_final2.RDS")
-attack_tweets_manc_final <- readRDS("attack_tweets_manc_final2.RDS")
-attack_tweets_lond_final <- readRDS("attack_tweets_lond_final2.RDS")
-attack_tweets_fins_final <- readRDS("attack_tweets_fins_final2.RDS")
-attack_tweets_pars_final <- readRDS("attack_tweets_pars_final2.RDS")
-```
-
-Combine all attacks for analysis 
-
-```{r cache=TRUE, eval=FALSE}
-attack_tweets_west_final$attack <- "Westminster"
-attack_tweets_manc_final$attack <- "Manchester Arena"
-attack_tweets_lond_final$attack <- "London Bridge"
-attack_tweets_fins_final$attack <- "Finsbury Park"
-attack_tweets_pars_final$attack <- "Parsons Green"
-
-attack_tweets_alll_final <- rbind(attack_tweets_west_final,
-                                  attack_tweets_manc_final,
-                                  attack_tweets_lond_final,
-                                  attack_tweets_fins_final,
-                                  attack_tweets_pars_final)
-
-# saveRDS(attack_tweets_alll_final, "attack_tweets_alll_final.RDS")
-```
-
-```{r cache=TRUE}
 attack_tweets_alll_final <- readRDS("attack_tweets_alll_final.RDS")
 ```
 
-Topic modelling for exploration
+Topic modelling for exploration for seed words
 
 ```{r cache=TRUE}
 make_dfm <- function(corpus, stem, verbose = FALSE) {
@@ -124,6 +98,8 @@ make_dfm <- function(corpus, stem, verbose = FALSE) {
 # corpus_pars <- corpus(attack_tweets_pars_final, text = "text")
 corpus_alll <- corpus(attack_tweets_alll_final, text = "text")
 
+# saveRDS(corpus_alll, "corpus_alll.RDS")
+
 # dfm_west <- make_dfm(corpus_west, verbose = TRUE, stem = FALSE)
 # dfm_manc <- make_dfm(corpus_manc, verbose = TRUE, stem = FALSE)
 # dfm_lond <- make_dfm(corpus_lond, verbose = TRUE, stem = FALSE)
@@ -150,10 +126,10 @@ get_terms(lda_pars, 20)
 get_terms(lda_alll, 20)
 ```
 
-From topic models: 
+Words From topic models: 
 Westminster - "uk-born", "racists", "racist", "vet", "mass", "blood", "disgraceful", "murders"
 Manchester - "#buildthewall", "terrorists", "illegal", "stop", "coming"
-London - multiculturalism (but used by ann coulder), dumped, borders, control, #travelban
+London - dumped, borders, control, #travelban
 Parsons - deport
 
 ************************************************************************************************************************
@@ -161,43 +137,12 @@ Parsons - deport
 
 ```{r cache=TRUE}
 # Create seedword dictionary for scaling 
-# 1a: all words from  qulitative undestanding 
+# words from  qualitative undestanding 
 seedword_dict_1a <- dictionary(list(
-  positive = c("islamaphobia", "love", "together", "racist", "#refugeeswelcome", "tories", "welcome", "racists",
-               "empathy", "positive", "benefit", "amazing", "rise", "vulnerable", "wages"),
-  negative = c("disgraceful", "murders", "ban", "#buildthewall","deport", "control", "#travelban", "blood", "thug", 
-               "bad", "nasty", "wrong", "illegals", "illegal", "horrible", "evil", "problem", "mass", "dumped", "destroyed",
-               "close", "extremist", "brexit", "control", "coming", "vet", "#closetheborders", "stop")
-  ))
-
-seedword_dict_1b <- dictionary(list(
-  positive = c("islamaphobia", "love", "together", "racist", "#refugeeswelcome", "tories", "welcome",
-               "empathy", "positive", "benefit", "amazing", "vulnerable"),
-  negative = c("disgraceful", "murderers", "ban", "#buildthewall","deport", "control", "#travelban", "blood", "thug", 
-               "bad", "nasty", "wrong", "illegals", "illegal", "horrible", "evil", "problem", "mass", "dumped", "destroyed",
-               "extremist", "control", "vet", "#closetheborders", "killers")
-  ))
-
-seedword_dict_1c <- dictionary(list(
-  positive = c("islamaphobia", "love", "together", "racist", "#refugeeswelcome", "tories", "welcome",
-               "empathy", "positive", "benefit", "amazing", "vulnerable"),
-  negative = c("disgraceful", "#buildthewall","deport", "control", "#travelban", "blood", "thug", "disgusting",
-               "illegals", "evil", "problem", "mass", "dumped", "destroyed", "vet", "#closetheborders")
-  ))
-
-seedword_dict_1d <- dictionary(list(
-  positive = c("islamaphobia", "love", "together", "racist", "#refugeeswelcome", "tories", "welcome",
-               "empathy", "positive", "benefit", "amazing", "vulnerable"),
-  negative = c("disgraceful", "#buildthewall","deport", "control", "#travelban", "blood", "thug", "disgusting",
-               "illegals", "evil", "problem", "mass", "dumped", "destroyed", "vet", "#closetheborders", "murders")
-  ))
-
-
-seedword_dict_1e <- dictionary(list(
-  positive = c("islamaphobia", "love", "together", "racist", "#refugeeswelcome", "tories", "welcome",
-               "empathy", "positive", "benefit", "amazing", "vulnerable"),
-  negative = c("disgraceful", "#buildthewall","deport", "#travelban", "blood", "thug", 
-               "bad", "nasty", "wrong", "illegals", "illegal", "horrible", "evil", "problem", "mass", "dumped", "destroyed",
+  positive = c("islamaphobia", "love", "together", "racist", "#refugeeswelcome", "welcome",
+               "empathy", "benefit", "amazing", "positive"),
+  negative = c("disgraceful", "deport", "#travelban", "blood", "thug", 
+               "bad", "illegals", "horrible", "evil", "problem", "destroyed",
                "extremist", "vet", "#closetheborders", "murders")
   ))
 ```
@@ -257,7 +202,7 @@ lss_function <- function(corpus, seedword_dict, k_val = 300) {
 
 
 ```{r cache=TRUE}
-lss_alll_output <- lss_function(corpus_alll, seedword_dict_1e, k_val = 300)
+lss_alll_output <- lss_function(corpus_alll, seedword_dict_1a, k_val = 300)
 lss_mod_alll <- lss_alll_output[[1]]
 lss_dfm_alll <- lss_alll_output[[2]]
 ```
@@ -271,7 +216,7 @@ print(textplot_terms(lss_mod_alll, data_dictionary_LSD2015["positive"]))
 print(textplot_terms(lss_mod_alll, data_dictionary_NRC["negative"]))
 print(textplot_terms(lss_mod_alll, data_dictionary_NRC["positive"]))
 
-print(textplot_terms(lss_mod_alll, seedword_dict_1e))
+print(textplot_terms(lss_mod_alll, seedword_dict_1a))
 
 # other visualisations
 # textplot_simil(lss_west, group = FALSE)
@@ -291,8 +236,8 @@ coefs_alll <- data.frame(frequency = lss_mod_alll$frequency,
                                polarity = coef(lss_mod_alll))
 
 coefs_alll %>% 
-  filter(word %in% seedword_dict_1c[["positive"]] 
-         | word %in% seedword_dict_1c[["negative"]])
+  filter(word %in% seedword_dict_1a[["positive"]] 
+         | word %in% seedword_dict_1a[["negative"]])
 
 coefs_alll %>%
   arrange(desc(frequency))
@@ -536,89 +481,7 @@ Functions to shift legend into empty facet
 
 ```{r}
 # code from https://stackoverflow.com/questions/54438495/shift-legend-into-empty-facets-of-a-faceted-plot-in-ggplot2
-shift_legend <- function(p){
-
-  # check if p is a valid object
-  if(!"gtable" %in% class(p)){
-    if("ggplot" %in% class(p)){
-      gp <- ggplotGrob(p) # convert to grob
-    } else {
-      message("This is neither a ggplot object nor a grob generated from ggplotGrob. Returning original plot.")
-      return(p)
-    }
-  } else {
-    gp <- p
-  }
-
-  # check for unfilled facet panels
-  facet.panels <- grep("^panel", gp[["layout"]][["name"]])
-  empty.facet.panels <- sapply(facet.panels, function(i) "zeroGrob" %in% class(gp[["grobs"]][[i]]))
-  empty.facet.panels <- facet.panels[empty.facet.panels]
-  if(length(empty.facet.panels) == 0){
-    message("There are no unfilled facet panels to shift legend into. Returning original plot.")
-    return(p)
-  }
-
-  # establish extent of unfilled facet panels (including any axis cells in between)
-  empty.facet.panels <- gp[["layout"]][empty.facet.panels, ]
-  empty.facet.panels <- list(min(empty.facet.panels[["t"]]), min(empty.facet.panels[["l"]]),
-                             max(empty.facet.panels[["b"]]), max(empty.facet.panels[["r"]]))
-  names(empty.facet.panels) <- c("t", "l", "b", "r")
-
-  # extract legend & copy over to location of unfilled facet panels
-  guide.grob <- which(gp[["layout"]][["name"]] == "guide-box")
-  if(length(guide.grob) == 0){
-    message("There is no legend present. Returning original plot.")
-    return(p)
-  }
-  gp <- gtable_add_grob(x = gp,
-                        grobs = gp[["grobs"]][[guide.grob]],
-                        t = empty.facet.panels[["t"]],
-                        l = empty.facet.panels[["l"]],
-                        b = empty.facet.panels[["b"]],
-                        r = empty.facet.panels[["r"]],
-                        name = "new-guide-box")
-
-  # squash the original guide box's row / column (whichever applicable)
-  # & empty its cell
-  guide.grob <- gp[["layout"]][guide.grob, ]
-  if(guide.grob[["l"]] == guide.grob[["r"]]){
-    gp <- gtable_squash_cols(gp, cols = guide.grob[["l"]])
-  }
-  if(guide.grob[["t"]] == guide.grob[["b"]]){
-    gp <- gtable_squash_rows(gp, rows = guide.grob[["t"]])
-  }
-  gp <- gtable_remove_grobs(gp, "guide-box")
-
-  return(gp)
-}
-
-```
-
-```{r}
 library(lemon)
-shift_legend2 <- function(p) {
-  # ...
-  # to grob
-  gp <- ggplotGrob(p)
-  facet.panels <- grep("^panel", gp[["layout"]][["name"]])
-  empty.facet.panels <- sapply(facet.panels, function(i) "zeroGrob" %in% class(gp[["grobs"]][[i]]))
-  empty.facet.panels <- facet.panels[empty.facet.panels]
-
-  # establish name of empty panels
-  empty.facet.panels <- gp[["layout"]][empty.facet.panels, ]
-  names <- empty.facet.panels$name
-  # example of names:
-  #[1] "panel-3-2" "panel-3-3"
-
-# now we just need a simple call to reposition the legend
-  reposition_legend(p, 'center', panel=names)
-}
-
-factor_plot_leg_adj <- shift_legend2(factor_plot)
-```
-```{r}
-
 shift_legend3 <- function(p) {
     pnls <- cowplot::plot_to_gtable(p) %>% gtable::gtable_filter("panel") %>%
       with(setNames(grobs, layout$name)) %>% purrr::keep(~identical(.x,zeroGrob()))
@@ -930,26 +793,4 @@ plot_df_dens_initial <- plot_df_dens %>%
   filter(Period == "Initial") 
 
 saveRDS(plot_df_dens_initial, "initial_opinions_1e.RDS")
-```
-
-************************************************************************************************************************
-
-Extra code
-
-```{r}
-boxplot_plot <- plot_df_dens %>% 
-  ggplot(aes(x = fit_updated_scaled, 
-             fill = distribution)) + 
-  geom_boxplot() +
-  # adjust labels
-  labs(title = "Density distribution of initial and final opinions",
-       x = "Scaled opinion value",
-       y = "Frequency") +
-  # adjust theme elements
-  theme_minimal() +
-  theme(axis.title.x = element_text(margin = margin(10, 0, 0, 0)),
-        axis.title.y = element_text(margin = margin(0, 10, 0, 0)),
-        plot.title = element_text(hjust = 0.5),
-        plot.margin = unit(c(0.25, 0.5, 0.25, 0.5), "cm")) +
-  facet_wrap(~ attack, scale = "free_y", nrow = 2, ncol = 3)
 ```
