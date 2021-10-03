@@ -1,0 +1,147 @@
+---
+title: "Extra tables and figures"
+author: "Lilia Meyers"
+date: "8/5/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(kableExtra)
+library(dplyr)
+library(quanteda)
+```
+
+
+```{r}
+abm_table_paper <- readRDS("abm_table_paper.RDS")
+abm_table_final <- readRDS("abm_table_final.RDS")
+
+abm_table_final <- transform(abm_table_final,
+                            attack = factor(attack,
+                                            levels = c("Westminster", "Manchester Arena", "London Bridge",
+                                                       "Finsbury Park", "Parsons Green", "Uniform initial opinions")))
+abm_table_final_print <- arrange(abm_table_final, attack)
+
+
+abm_table_final_print[1:27,] %>%
+  as.data.frame() %>% 
+  kbl(booktabs = T, 
+      col.names = c("attack", "epsilon", "average initial opinion",
+                    "average final opinion", "average opinion shift",
+                    "proportion of initial extremists",
+                    "proportion of final extremists")) %>% 
+  kable_styling(latex_options =  c("striped")) %>% 
+    column_spec(3, width = "2cm") %>% 
+    column_spec(4, width = "2cm") %>% 
+    column_spec(5, width = "2cm") %>% 
+    column_spec(6, width = "2cm") %>% 
+    column_spec(7, width = "2cm") 
+
+abm_table_final_print[28:54,] %>%
+  as.data.frame() %>% 
+  kbl(booktabs = T, 
+      row.names = FALSE,
+      col.names = c("attack", "epsilon", "average initial opinion",
+                    "average final opinion", "average opinion shift",
+                    "proportion of initial extremists",
+                    "proportion of final extremists")) %>% 
+  kable_styling(latex_options =  c("striped")) %>% 
+    column_spec(3, width = "2cm") %>% 
+    column_spec(4, width = "2cm") %>% 
+    column_spec(5, width = "2cm") %>% 
+    column_spec(6, width = "2cm") %>% 
+    column_spec(7, width = "2cm") 
+```
+
+```{r eval=FALSE}
+abm_table_paper <- transform(abm_table_paper,
+                            attack = factor(attack,
+                                            levels = c("Westminster", "Manchester Arena", "London Bridge",
+                                                       "Finsbury Park", "Parsons Green", "Uniform initial opinions")))
+abm_table_paper_print <- arrange(abm_table_paper, attack)
+
+abm_table_paper_print %>% 
+  kbl(booktabs = T, 
+      col.names = c("attack", "epsilon", "average initial opinion",
+                    "average final opinion", "average opinion shift",
+                    "proportion of initial extremists",
+                    "proportion of final extremists")) %>% 
+  kable_styling(latex_options =  c("striped")) %>% 
+    column_spec(3, width = "2cm") %>% 
+    column_spec(4, width = "2cm") %>% 
+    column_spec(5, width = "2cm") %>% 
+    column_spec(6, width = "2cm") %>% 
+    column_spec(7, width = "2cm") 
+
+```
+
+```{r cache=TRUE, eval=FALSE}
+corpus_alll <- readRDS("corpus_alll.RDS")
+  # segment corpus into sentences to determine semantic proximity 
+  corpus_sentences <- corpus_reshape(corpus_alll, to =  "sentences")
+  
+# make tokens object
+lss_tokens <- corpus_sentences %>%
+tokens(
+  remove_punct = TRUE,
+  remove_symbols = TRUE,
+  remove_numbers = TRUE,
+  remove_url = TRUE
+  ) %>% 
+tokens_remove(
+  c(stopwords("en"), 
+    "t.co", "rt", "amp", "&amp", "http", "https",
+    "#rt")
+  # remove common words?
+  # padding = TRUE
+  ) %>% 
+tokens_select(min_nchar = 2L
+              )
+# tokens_ngrams(n = 1:2)
+
+lss_dfm <- lss_tokens %>% 
+  dfm(stem = FALSE) %>% 
+  dfm_remove(pattern = "") %>% 
+  # remove usernames 
+  dfm_remove(pattern = "@*") %>%
+  dfm_trim(
+    min_docfreq = 10
+    # min_termfreq = 5
+    )
+```
+
+```{r, eval=FALSE}
+# average number of words per speech 
+dfm_raw_df_summ <- as.data.frame(textstat_summary(corpus_alll))
+
+dfm_clean_df_summ <- as.data.frame(textstat_summary(lss_dfm))
+
+description_tab <- rbind("original_corpus" = colMeans(dfm_raw_df_summ[4:11], na.rm = TRUE),
+                         "processed_dfm" = colMeans(dfm_clean_df_summ[4:11], na.rm = TRUE)) 
+
+saveRDS(description_tab, "description_tab.RDS")  
+```
+
+```{r, eval=TRUE}
+description_tab <- readRDS("description_tab.RDS")
+
+rownames(description_tab) <- c("Original corpus", "Processed dfm")
+
+description_tab[,-8] <- round(description_tab[,-8], 4)
+
+description_tab[,-8] %>%
+  kbl(booktabs = T, caption = "Feature frequencies") %>% 
+  kable_styling(latex_options =  c("hold_position", "striped"),
+                full_width = FALSE)
+```
+
+```{r}
+write.csv(description_tab[,-8], "description_table.csv")
+```
+
