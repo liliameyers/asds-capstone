@@ -333,6 +333,63 @@ tpd_plot_all <- grid.arrange(
 ggsave(tpd_plot_all, file = "tpd_plot_all.png", height = 16, width = 12)
 ```
 
+Or all on same scale
+
+```{r eval=FALSE}
+attack_tweets_alll_final <- readRDS("attack_tweets_alll_final.RDS")
+```
+
+```{r eval=FALSE}
+# Make attack time data frame for plotting
+attack_time_df <- data.frame(attack = c("Westminster", "Manchester Arena","London Bridge", 
+                                        "Finsbury Park","Parsons Green"),
+                             attack_time = c("2017-03-22 14:40", "2017-05-22 21:30", "2017-06-03 21:06",
+                                             "2017-06-18 23:05", "2017-09-15 07:20"))
+
+# order attacks for plotting
+attack_tweets_alll_final <- transform(attack_tweets_alll_final, 
+                               attack = factor(attack, 
+                                               levels = c("Westminster", "Manchester Arena", "London Bridge",
+                                                          "Finsbury Park", "Parsons Green")))
+
+attack_time_df <- transform(attack_time_df,
+                            attack = factor(attack, 
+                                            levels = c("Westminster", "Manchester Arena", "London Bridge",
+                                                       "Finsbury Park", "Parsons Green")))
+```
+
+```{r eval=FALSE}
+plot_df_grouped <- plot_df %>% 
+  group_by(attack, created_ymdhourly) %>%
+  summarise(num_tweets = n()) 
+
+tweets_per_period_plot <- plot_df_grouped %>% 
+  ggplot(aes(
+    x = created_ymdhourly,
+    y = num_tweets)
+    ) +
+  geom_line() +
+  # Add vertical line at time of attack
+  geom_vline(data = attack_time_df,
+             aes(xintercept = as.numeric(ymd_hm(attack_time))),
+             linetype = 4, colour = "red") +
+  scale_x_datetime(labels = date_format("%b %d")) +
+      labs(title = "Number of tweets over time",
+           subtitle = "All English tweets about the immigration & the attack or the UK",
+           x = "Date",
+           y = "Number of tweets") +
+      theme_bw() +
+      theme(legend.position = "none",
+            plot.title = element_text(hjust = 0.5),
+            plot.subtitle = element_text(hjust = 0.5),
+            plot.margin = unit(c(0.5, 0.5, 0.5, 0.5), "cm")) +
+      facet_wrap(~ attack, scales = "free", nrow = 2, ncol = 3)
+```
+
+```{r eval=FALSE}
+ggsave(tweets_per_period_plot, file = "tweets_per_period_plot_1e.png", height = 7, width = 10)
+```
+
 ************************************************************************************************************************************************
 Filter to final data - 48 hours after attack 
 
@@ -372,56 +429,5 @@ attack_tweets_fin_pars <- attack_tweets_pars %>%
 # saveRDS(attack_tweets_fin_lond, "attack_tweets_lond_final.RDS")
 # saveRDS(attack_tweets_fin_fins, "attack_tweets_fins_final.RDS")
 # saveRDS(attack_tweets_fin_pars, "attack_tweets_pars_final.RDS")
-
-attack_tweets_west_final <- readRDS("attack_tweets_west_final.RDS")
-attack_tweets_manc_final <- readRDS("attack_tweets_manc_final.RDS")
-attack_tweets_lond_final <- readRDS("attack_tweets_lond_final.RDS")
-attack_tweets_fins_final <- readRDS("attack_tweets_fins_final.RDS")
-attack_tweets_pars_final <- readRDS("attack_tweets_pars_final.RDS")
 ```
-
-Cut off the last three hours so to have even number of hours for analysis (48)
-
-```{r}
-attack_tweets_west_final2 <- attack_tweets_west_final %>% 
-  filter(created_ymdhourly <= ymd_hm("2017-03-24 11:40"))
-
-attack_tweets_manc_final2 <- attack_tweets_manc_final %>% 
-  filter(created_ymdhourly <= ymd_hm("2017-05-24 18:30"))
-
-attack_tweets_lond_final2 <- attack_tweets_lond_final %>% 
-  filter(created_ymdhourly <= ymd_hm("2017-06-05 18:06"))
-
-attack_tweets_fins_final2 <- attack_tweets_fins_final %>% 
-  filter(created_ymdhourly <= ymd_hm("2017-06-20 21:05"))  
-
-attack_tweets_pars_final2 <- attack_tweets_pars_final %>% 
-  filter(created_ymdhourly <= ymd_hm("2017-09-17 04:20"))  
-```
-
-```{r}
-# saveRDS(attack_tweets_west_final2, "attack_tweets_west_final2.RDS")
-# saveRDS(attack_tweets_manc_final2, "attack_tweets_manc_final2.RDS")
-# saveRDS(attack_tweets_lond_final2, "attack_tweets_lond_final2.RDS")
-# saveRDS(attack_tweets_fins_final2, "attack_tweets_fins_final2.RDS")
-# saveRDS(attack_tweets_pars_final2, "attack_tweets_pars_final2.RDS")
-```
-
-```{r}
-length(unique(attack_tweets_west_final2$author_id))
-length(unique(attack_tweets_west_final2$id))
-
-length(unique(attack_tweets_manc_final2$author_id))
-length(unique(attack_tweets_manc_final2$id))
-
-length(unique(attack_tweets_lond_final2$author_id))
-length(unique(attack_tweets_lond_final2$id))
-
-length(unique(attack_tweets_fins_final2$author_id))
-length(unique(attack_tweets_fins_final2$id))
-
-length(unique(attack_tweets_pars_final2$author_id))
-length(unique(attack_tweets_pars_final2$id))
-```
-
 
